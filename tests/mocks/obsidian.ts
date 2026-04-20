@@ -10,6 +10,9 @@ export class BasesView extends Component {
 	data = {
 		groupedData: [],
 	};
+	app = {
+		renderContext: new RenderContext(),
+	};
 
 	constructor(controller: unknown) {
 		super();
@@ -37,6 +40,14 @@ export class NullValue extends Value {
 
 	toString(): string {
 		return "";
+	}
+}
+
+export class DateValue extends Value {
+	renderTo(): void {}
+
+	toString(): string {
+		return "2026-04-24";
 	}
 }
 

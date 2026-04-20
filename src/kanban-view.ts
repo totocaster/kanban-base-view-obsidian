@@ -1,4 +1,9 @@
-import { BasesView, Keymap, setIcon } from "obsidian";
+import {
+	BasesView,
+	DateValue,
+	Keymap,
+	setIcon,
+} from "obsidian";
 import type {
 	BasesEntry,
 	BasesEntryGroup,
@@ -140,6 +145,11 @@ class BasesKanbanScaffoldView extends BasesView {
 			if (!hasCardPropertyValue(propertyItem)) {
 				valueEl.addClass("bases-kanban-card-property-value--empty");
 				valueEl.setText("–");
+				continue;
+			}
+
+			if (propertyItem.value instanceof DateValue) {
+				valueEl.setText(propertyItem.value.toString());
 				continue;
 			}
 
