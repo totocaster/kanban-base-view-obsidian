@@ -22,3 +22,31 @@ export class Keymap {
 		return false;
 	}
 }
+
+export class RenderContext {}
+
+export function setIcon(): void {}
+
+export abstract class Value {
+	abstract renderTo(): void;
+	abstract toString(): string;
+}
+
+export class NullValue extends Value {
+	renderTo(): void {}
+
+	toString(): string {
+		return "";
+	}
+}
+
+export function parsePropertyId(propertyId: string): {
+	type: string;
+	name: string;
+} {
+	const [type, ...nameParts] = propertyId.split(".");
+	return {
+		type,
+		name: nameParts.join("."),
+	};
+}

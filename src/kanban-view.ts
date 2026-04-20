@@ -1,10 +1,12 @@
-import { BasesView, Keymap } from "obsidian";
+import { BasesView, Keymap, setIcon } from "obsidian";
 import type {
+	BasesEntry,
 	BasesEntryGroup,
 	BasesViewRegistration,
 	Plugin,
 	QueryController,
 } from "obsidian";
+import { getCardPropertyItems, hasCardPropertyValue } from "./card-properties";
 
 export const KANBAN_VIEW_TYPE = "kanban";
 export const KANBAN_VIEW_NAME = "Kanban";
@@ -77,25 +79,91 @@ class BasesKanbanScaffoldView extends BasesView {
 		}
 
 		for (const entry of group.entries) {
-			const cardEl = cardsEl.createEl("li", {
-				cls: "bases-kanban-card",
+			this.renderCard(cardsEl, entry);
+		}
+	}
+
+	private renderCard(cardsEl: HTMLElement, entry: BasesEntry): void {
+		const cardEl = cardsEl.createEl("li", {
+			cls: "bases-kanban-card",
+		});
+		const titleEl = cardEl.createEl("button", {
+			cls: "bases-kanban-card-link",
+			attr: {
+				type: "button",
+			},
+		});
+		titleEl.setText(entry.file.basename);
+		titleEl.onClickEvent((event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.app.workspace.openLinkText(
+				entry.file.path,
+				"",
+				Keymap.isModEvent(event),
+			);
+		});
+
+		this.renderCardProperties(cardEl, entry);
+	}
+
+	private renderCardProperties(cardEl: HTMLElement, entry: BasesEntry): void {
+		const propertyItems = getCardPropertyItems(
+			this.config,
+			entry,
+			entry.file.basename,
+		);
+		if (propertyItems.length === 0) {
+			return;
+		}
+
+		const propertiesEl = cardEl.createDiv({ cls: "bases-kanban-card-properties" });
+		const renderContext = this.app.renderContext;
+
+		for (const propertyItem of propertyItems) {
+			const rowEl = propertiesEl.createDiv({
+				cls: "bases-kanban-card-property",
 			});
-			const titleEl = cardEl.createEl("button", {
-				cls: "bases-kanban-card-link",
-				attr: {
-					type: "button",
-				},
+			this.renderCardPropertyIcon(
+				rowEl,
+				propertyItem.icon,
+				propertyItem.toneClass,
+			);
+			rowEl.createSpan({
+				cls: "bases-kanban-card-property-label",
+				text: propertyItem.label,
 			});
-			titleEl.setText(entry.file.basename);
-			titleEl.onClickEvent((event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				void this.app.workspace.openLinkText(
-					entry.file.path,
-					"",
-					Keymap.isModEvent(event),
-				);
+
+			const valueEl = rowEl.createSpan({
+				cls: "bases-kanban-card-property-value",
 			});
+			if (!hasCardPropertyValue(propertyItem)) {
+				valueEl.addClass("bases-kanban-card-property-value--empty");
+				valueEl.setText("–");
+				continue;
+			}
+
+			propertyItem.value.renderTo(valueEl, renderContext);
+		}
+	}
+
+	private renderCardPropertyIcon(
+		parentEl: HTMLElement,
+		icon: string | null,
+		toneClass?: string,
+	): void {
+		const iconEl = parentEl.createSpan({
+			cls: "bases-kanban-card-property-icon",
+			attr: { "aria-hidden": "true" },
+		});
+		if (!icon) {
+			iconEl.addClass("bases-kanban-card-property-icon--empty");
+			return;
+		}
+
+		setIcon(iconEl, icon);
+		if (toneClass) {
+			iconEl.addClass(toneClass);
 		}
 	}
 }
