@@ -6,4 +6,6 @@ In practice, the public `BasesViewConfig` surface exposed the active sort state 
 
 This is an intentional tradeoff: it uses observed runtime shape because the documented public API did not appear to expose the active `groupBy`, but it avoids introducing duplicate settings and keeps column ordering scoped to the grouping the user actually picked in Bases.
 
+Initial implementation landed in commit `844be83`.
+
 I might be missing something though. Would like to discuss.
