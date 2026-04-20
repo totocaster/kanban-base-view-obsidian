@@ -16,3 +16,9 @@ export class BasesView extends Component {
 		void controller;
 	}
 }
+
+export class Keymap {
+	static isModEvent(): boolean {
+		return false;
+	}
+}

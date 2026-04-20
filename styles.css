@@ -81,6 +81,33 @@
 		box-shadow 120ms ease;
 }
 
+.bases-kanban-card-link {
+	all: unset;
+	appearance: none;
+	-webkit-appearance: none;
+	display: block;
+	width: 100%;
+	border: none !important;
+	background: none !important;
+	box-shadow: none !important;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	font-weight: var(--font-medium);
+	line-height: inherit;
+	text-align: left;
+}
+
+.bases-kanban-card-link:hover {
+	color: var(--interactive-accent);
+}
+
+.bases-kanban-card-link:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-s);
+}
+
 .bases-kanban-card:hover {
 	border-color: color-mix(
 		in srgb,

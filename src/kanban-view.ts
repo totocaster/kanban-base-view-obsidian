@@ -1,4 +1,4 @@
-import { BasesView } from "obsidian";
+import { BasesView, Keymap } from "obsidian";
 import type {
 	BasesEntryGroup,
 	BasesViewRegistration,
@@ -77,9 +77,24 @@ class BasesKanbanScaffoldView extends BasesView {
 		}
 
 		for (const entry of group.entries) {
-			cardsEl.createEl("li", {
+			const cardEl = cardsEl.createEl("li", {
 				cls: "bases-kanban-card",
-				text: entry.file.name,
+			});
+			const titleEl = cardEl.createEl("button", {
+				cls: "bases-kanban-card-link",
+				attr: {
+					type: "button",
+				},
+			});
+			titleEl.setText(entry.file.basename);
+			titleEl.onClickEvent((event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				void this.app.workspace.openLinkText(
+					entry.file.path,
+					"",
+					Keymap.isModEvent(event),
+				);
 			});
 		}
 	}
