@@ -30,6 +30,43 @@ export class RenderContext {}
 
 export function setIcon(): void {}
 
+export class Menu extends Component {
+	static forEvent(): Menu {
+		return new Menu();
+	}
+
+	addItem(callback: (item: MenuItem) => unknown): this {
+		callback(new MenuItem());
+		return this;
+	}
+
+	showAtMouseEvent(): this {
+		return this;
+	}
+
+	showAtPosition(): this {
+		return this;
+	}
+}
+
+export class MenuItem {
+	setTitle(): this {
+		return this;
+	}
+
+	setIcon(): this {
+		return this;
+	}
+
+	setDisabled(): this {
+		return this;
+	}
+
+	onClick(): this {
+		return this;
+	}
+}
+
 export abstract class Value {
 	abstract renderTo(): void;
 	abstract toString(): string;

@@ -2,6 +2,7 @@ import {
 	BasesView,
 	DateValue,
 	Keymap,
+	Menu,
 	setIcon,
 } from "obsidian";
 import type {
@@ -11,6 +12,14 @@ import type {
 	Plugin,
 	QueryController,
 } from "obsidian";
+import {
+	getCurrentGroupingKey,
+	getGroupColumnId,
+	getOrderedGroupsForCurrentGrouping,
+	moveColumnByOffset,
+	moveColumnToIndex,
+	writeCurrentColumnOrder,
+} from "./kanban-ordering";
 import { getCardPropertyItems, hasCardPropertyValue } from "./card-properties";
 
 export const KANBAN_VIEW_TYPE = "kanban";
@@ -18,6 +27,10 @@ export const KANBAN_VIEW_NAME = "Kanban";
 export const KANBAN_VIEW_ICON = "lucide-columns-3";
 export const EMPTY_GROUP_TITLE = "Ungrouped";
 const SHOW_EMPTY_PROPERTIES_KEY = "showEmptyProperties";
+const COLUMN_ID_ATTR = "data-column-id";
+const COLUMN_DRAGGING_CLASS = "bases-kanban-column--dragging";
+const COLUMN_DROP_SLOT_ACTIVE_CLASS = "bases-kanban-drop-slot--active";
+const DRAG_PREVIEW_CLASS = "bases-kanban-drag-preview";
 
 type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
 
@@ -59,6 +72,9 @@ export function registerKanbanView(plugin: BasesViewRegistrar): void {
 class BasesKanbanScaffoldView extends BasesView {
 	readonly type = KANBAN_VIEW_TYPE;
 	private readonly containerEl: HTMLElement;
+	private boardEl: HTMLElement | null = null;
+	private draggedColumnEl: HTMLElement | null = null;
+	private activeColumnSlotEl: HTMLElement | null = null;
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
 		super(controller);
@@ -66,23 +82,61 @@ class BasesKanbanScaffoldView extends BasesView {
 	}
 
 	onDataUpdated(): void {
+		this.resetColumnInteractionState();
 		this.containerEl.empty();
+		this.boardEl = null;
 
 		const boardEl = this.containerEl.createDiv({ cls: "bases-kanban-board" });
-		for (const group of this.data.groupedData) {
+		this.boardEl = boardEl;
+		boardEl.addEventListener("dragover", (event) => {
+			this.handleBoardDragOver(event, boardEl);
+		});
+		boardEl.addEventListener("drop", (event) => {
+			this.handleBoardDrop(event, boardEl);
+		});
+
+		this.renderColumnDropSlot(boardEl);
+		for (const group of getOrderedGroupsForCurrentGrouping(
+			this,
+			this.data.groupedData,
+		)) {
 			this.renderGroup(boardEl, group);
+			this.renderColumnDropSlot(boardEl);
 		}
 	}
 
 	private renderGroup(boardEl: HTMLElement, group: BasesEntryGroup): void {
+		const columnId = getGroupColumnId(group);
+		const columnTitle = getGroupTitle(group);
+		const canReorderColumns = getCurrentGroupingKey(this) !== null;
 		const columnEl = boardEl.createEl("section", { cls: "bases-kanban-column" });
+		columnEl.setAttribute(COLUMN_ID_ATTR, columnId);
 		const headingEl = columnEl.createEl("header", {
 			cls: "bases-kanban-column-heading",
 		});
+		if (canReorderColumns) {
+			headingEl.addClass("bases-kanban-column-heading--draggable");
+			headingEl.tabIndex = 0;
+			headingEl.draggable = true;
+			headingEl.addEventListener("dragstart", (event) => {
+				this.handleColumnDragStart(event, columnEl);
+			});
+			headingEl.addEventListener("dragend", () => {
+				this.handleColumnDragEnd();
+			});
+			headingEl.addEventListener("contextmenu", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				this.openColumnMenu(event, columnEl, columnTitle);
+			});
+			headingEl.addEventListener("keydown", (event) => {
+				this.handleColumnHeaderKeyDown(event, headingEl, columnEl, columnTitle);
+			});
+		}
 
 		headingEl.createEl("h4", {
 			cls: "bases-kanban-column-title",
-			text: getGroupTitle(group),
+			text: columnTitle,
 		});
 		headingEl.createEl("small", {
 			cls: "bases-kanban-column-count",
@@ -196,5 +250,251 @@ class BasesKanbanScaffoldView extends BasesView {
 	private shouldShowEmptyProperties(): boolean {
 		const value = this.config.get(SHOW_EMPTY_PROPERTIES_KEY);
 		return typeof value === "boolean" ? value : true;
+	}
+
+	// Column menu building and actions
+	private openColumnMenu(
+		event: MouseEvent,
+		columnEl: HTMLElement,
+		columnTitle: string,
+	): void {
+		this.buildColumnMenu(columnEl, columnTitle)?.showAtMouseEvent(event);
+	}
+
+	private handleColumnHeaderKeyDown(
+		event: KeyboardEvent,
+		headingEl: HTMLElement,
+		columnEl: HTMLElement,
+		columnTitle: string,
+	): void {
+		if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		const rect = headingEl.getBoundingClientRect();
+		this.buildColumnMenu(columnEl, columnTitle)?.showAtPosition({
+			x: rect.left,
+			y: rect.bottom,
+			width: rect.width,
+		});
+	}
+
+	private buildColumnMenu(
+		columnEl: HTMLElement,
+		columnTitle: string,
+	): Menu | null {
+		const boardEl = this.boardEl;
+		if (!(boardEl instanceof HTMLElement)) {
+			return null;
+		}
+
+		const columnId = columnEl.getAttribute(COLUMN_ID_ATTR);
+		if (!columnId) {
+			return null;
+		}
+
+		const columnOrder = this.getRenderedColumnOrder(boardEl);
+		const columnIndex = columnOrder.indexOf(columnId);
+		const canMoveLeft = columnIndex > 0;
+		const canMoveRight =
+			columnIndex !== -1 && columnIndex < columnOrder.length - 1;
+
+		const menu = new Menu();
+		menu.addItem((item) => {
+			item
+				.setTitle(`Move ${columnTitle} left`)
+				.setIcon("arrow-left")
+				.setDisabled(!canMoveLeft)
+				.onClick(() => {
+					this.moveRenderedColumnByOffset(boardEl, columnId, -1);
+				});
+		});
+		menu.addItem((item) => {
+			item
+				.setTitle(`Move ${columnTitle} right`)
+				.setIcon("arrow-right")
+				.setDisabled(!canMoveRight)
+				.onClick(() => {
+					this.moveRenderedColumnByOffset(boardEl, columnId, 1);
+				});
+		});
+		return menu;
+	}
+
+	private moveRenderedColumnByOffset(
+		boardEl: HTMLElement,
+		columnId: string,
+		offset: number,
+	): void {
+		const columnOrder = this.getRenderedColumnOrder(boardEl);
+		this.persistColumnOrder(moveColumnByOffset(columnOrder, columnId, offset));
+	}
+
+	private persistColumnOrder(columnOrder: string[]): void {
+		writeCurrentColumnOrder(this, columnOrder);
+	}
+
+	// Column drag and drop
+	private handleColumnDragStart(
+		event: DragEvent,
+		columnEl: HTMLElement,
+	): void {
+		event.stopPropagation();
+		this.draggedColumnEl = columnEl;
+		columnEl.classList.add(COLUMN_DRAGGING_CLASS);
+
+		if (!event.dataTransfer) {
+			return;
+		}
+
+		event.dataTransfer.effectAllowed = "move";
+		event.dataTransfer.setData(
+			"text/plain",
+			columnEl.getAttribute(COLUMN_ID_ATTR) ?? "",
+		);
+		const previewEl = this.createDragPreview(
+			columnEl,
+			"bases-kanban-column--drag-preview",
+		);
+		event.dataTransfer.setDragImage(previewEl, 24, 24);
+	}
+
+	private handleColumnDragEnd(): void {
+		this.resetColumnInteractionState();
+	}
+
+	private handleBoardDragOver(event: DragEvent, boardEl: HTMLElement): void {
+		if (!this.draggedColumnEl) {
+			return;
+		}
+
+		event.preventDefault();
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = "move";
+		}
+
+		this.setActiveColumnSlot(this.getNearestColumnSlot(boardEl, event.clientX));
+	}
+
+	private handleBoardDrop(event: DragEvent, boardEl: HTMLElement): void {
+		if (!this.draggedColumnEl) {
+			return;
+		}
+
+		event.preventDefault();
+		const slotEl =
+			this.activeColumnSlotEl ??
+			this.getNearestColumnSlot(boardEl, event.clientX);
+		const columnId = this.draggedColumnEl.getAttribute(COLUMN_ID_ATTR);
+		if (slotEl && columnId) {
+			const columnOrder = this.getRenderedColumnOrder(boardEl);
+			const sourceIndex = columnOrder.indexOf(columnId);
+			const targetSlotIndex = this.getChildIndex(
+				boardEl,
+				slotEl,
+				".bases-kanban-column-drop-slot",
+			);
+
+			if (sourceIndex !== -1 && targetSlotIndex !== -1) {
+				const insertionIndex =
+					targetSlotIndex > sourceIndex
+						? targetSlotIndex - 1
+						: targetSlotIndex;
+				this.persistColumnOrder(
+					moveColumnToIndex(columnOrder, columnId, insertionIndex),
+				);
+			}
+		}
+
+		this.setActiveColumnSlot(null);
+	}
+
+	private renderColumnDropSlot(parentEl: HTMLElement): void {
+		parentEl.createDiv({ cls: "bases-kanban-column-drop-slot" });
+	}
+
+	private getRenderedColumnOrder(boardEl: HTMLElement): string[] {
+		return Array.from(boardEl.querySelectorAll(":scope > .bases-kanban-column"))
+			.filter(
+				(columnNode): columnNode is HTMLElement =>
+					columnNode instanceof HTMLElement,
+			)
+			.map((columnEl) => columnEl.getAttribute(COLUMN_ID_ATTR))
+			.filter((columnId): columnId is string => columnId !== null);
+	}
+
+	private getChildIndex(
+		parentEl: HTMLElement,
+		childEl: HTMLElement,
+		selector: string,
+	): number {
+		return Array.from(parentEl.querySelectorAll(`:scope > ${selector}`)).indexOf(
+			childEl,
+		);
+	}
+
+	private getNearestColumnSlot(
+		boardEl: HTMLElement,
+		clientX: number,
+	): HTMLElement | null {
+		const slots = Array.from(
+			boardEl.querySelectorAll(".bases-kanban-column-drop-slot"),
+		).filter(
+			(slotNode): slotNode is HTMLElement => slotNode instanceof HTMLElement,
+		);
+
+		let nearestSlot: HTMLElement | null = null;
+		let nearestDistance = Number.POSITIVE_INFINITY;
+
+		for (const slotEl of slots) {
+			const rect = slotEl.getBoundingClientRect();
+			const slotCenter = rect.left + rect.width / 2;
+			const distance = Math.abs(clientX - slotCenter);
+			if (distance < nearestDistance) {
+				nearestDistance = distance;
+				nearestSlot = slotEl;
+			}
+		}
+
+		return nearestSlot;
+	}
+
+	private setActiveColumnSlot(slotEl: HTMLElement | null): void {
+		if (this.activeColumnSlotEl === slotEl) {
+			return;
+		}
+
+		this.activeColumnSlotEl?.classList.remove(COLUMN_DROP_SLOT_ACTIVE_CLASS);
+		this.activeColumnSlotEl = slotEl;
+		this.activeColumnSlotEl?.classList.add(COLUMN_DROP_SLOT_ACTIVE_CLASS);
+	}
+
+	private createDragPreview(
+		sourceEl: HTMLElement,
+		previewClassName: string,
+	): HTMLElement {
+		const previewEl = sourceEl.cloneNode(true);
+		if (!(previewEl instanceof HTMLElement)) {
+			return sourceEl;
+		}
+
+		previewEl.classList.remove(COLUMN_DRAGGING_CLASS);
+		previewEl.classList.add(DRAG_PREVIEW_CLASS, previewClassName);
+		previewEl.style.width = `${sourceEl.getBoundingClientRect().width}px`;
+
+		this.containerEl.ownerDocument.body.appendChild(previewEl);
+		requestAnimationFrame(() => previewEl.remove());
+		return previewEl;
+	}
+
+	private resetColumnInteractionState(): void {
+		if (this.draggedColumnEl) {
+			this.draggedColumnEl.classList.remove(COLUMN_DRAGGING_CLASS);
+		}
+
+		this.setActiveColumnSlot(null);
+		this.draggedColumnEl = null;
 	}
 }
