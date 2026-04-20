@@ -1,0 +1,14 @@
+{
+	"compilerOptions": {
+		"module": "ESNext",
+		"target": "ES2018",
+		"lib": ["DOM", "ES2018"],
+		"moduleResolution": "node",
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"allowSyntheticDefaultImports": true,
+		"isolatedModules": true,
+		"skipLibCheck": true
+	},
+	"include": ["src/**/*.ts"]
+}

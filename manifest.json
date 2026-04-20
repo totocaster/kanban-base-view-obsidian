@@ -1,0 +1,9 @@
+{
+	"id": "bases-kanban-view",
+	"name": "Bases Kanban View",
+	"version": "0.0.1",
+	"minAppVersion": "1.10.0",
+	"description": "Adds a kanban layout for Bases.",
+	"author": "Toto Tvalavadze",
+	"isDesktopOnly": false
+}

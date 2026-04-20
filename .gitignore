@@ -1,0 +1,11 @@
+node_modules/
+main.js
+*.map
+*.tsbuildinfo
+data.json
+.obsidian/
+.vscode/
+.idea/
+*.iml
+coverage/
+.DS_Store
