@@ -67,6 +67,12 @@ export class MenuItem {
 	}
 }
 
+export class Notice {
+	constructor(message: string) {
+		void message;
+	}
+}
+
 export abstract class Value {
 	abstract renderTo(): void;
 	abstract toString(): string;

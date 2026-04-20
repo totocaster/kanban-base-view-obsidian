@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { NullValue } from "obsidian";
 import {
+	applyGroupingValueToFrontmatter,
 	KANBAN_VIEW_ICON,
 	KANBAN_VIEW_NAME,
 	KANBAN_VIEW_TYPE,
 	createKanbanViewRegistration,
 	formatNoteCount,
+	getWritableGroupingPropertyName,
 	getGroupTitle,
 	registerKanbanView,
 } from "../src/kanban-view";
@@ -40,6 +42,51 @@ describe("formatNoteCount", () => {
 
 	it("formats a plural note count", () => {
 		expect(formatNoteCount(3)).toBe("3 notes");
+	});
+});
+
+describe("getWritableGroupingPropertyName", () => {
+	it("returns the note property name for writable note groupings", () => {
+		expect(getWritableGroupingPropertyName("note.status")).toBe("status");
+	});
+
+	it("returns null for non-note groupings", () => {
+		expect(getWritableGroupingPropertyName("file.ext")).toBeNull();
+	});
+});
+
+describe("applyGroupingValueToFrontmatter", () => {
+	it("deletes the property for ungrouped targets", () => {
+		const frontmatter = {
+			status: "Done",
+			keep: true,
+		};
+
+		applyGroupingValueToFrontmatter(frontmatter, "status", "__kanban_null__");
+
+		expect(frontmatter).toEqual({
+			keep: true,
+		});
+	});
+
+	it("writes an empty string for the empty-value group", () => {
+		const frontmatter: Record<string, unknown> = {};
+
+		applyGroupingValueToFrontmatter(frontmatter, "status", "__kanban_empty__");
+
+		expect(frontmatter).toEqual({
+			status: "",
+		});
+	});
+
+	it("writes the concrete group key for normal targets", () => {
+		const frontmatter: Record<string, unknown> = {};
+
+		applyGroupingValueToFrontmatter(frontmatter, "status", "In progress");
+
+		expect(frontmatter).toEqual({
+			status: "In progress",
+		});
 	});
 });
 

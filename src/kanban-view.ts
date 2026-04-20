@@ -3,6 +3,8 @@ import {
 	DateValue,
 	Keymap,
 	Menu,
+	Notice,
+	parsePropertyId,
 	setIcon,
 } from "obsidian";
 import type {
@@ -22,10 +24,14 @@ import {
 	getOrderedEntriesForGroup,
 	getOrderedGroupsForCurrentGrouping,
 	moveCardToBoundary,
+	moveCardToVisibleIndex,
 	writeCurrentCardOrder,
+	writeCurrentCardOrders,
 	moveColumnByOffset,
 	moveColumnToIndex,
 	writeCurrentColumnOrder,
+	KANBAN_EMPTY_COLUMN_ID,
+	KANBAN_NULL_COLUMN_ID,
 } from "./kanban-ordering";
 import { getCardPropertyItems, hasCardPropertyValue } from "./card-properties";
 
@@ -35,11 +41,43 @@ export const KANBAN_VIEW_ICON = "lucide-columns-3";
 export const EMPTY_GROUP_TITLE = "Ungrouped";
 const SHOW_EMPTY_PROPERTIES_KEY = "showEmptyProperties";
 const COLUMN_ID_ATTR = "data-column-id";
+const CARD_ID_ATTR = "data-card-id";
 const COLUMN_DRAGGING_CLASS = "bases-kanban-column--dragging";
+const CARD_DRAGGING_CLASS = "bases-kanban-card--dragging";
 const COLUMN_DROP_SLOT_ACTIVE_CLASS = "bases-kanban-drop-slot--active";
 const DRAG_PREVIEW_CLASS = "bases-kanban-drag-preview";
 
 type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
+
+export function getWritableGroupingPropertyName(
+	groupingKey: string | null,
+): string | null {
+	if (groupingKey === null || !groupingKey.startsWith("note.")) {
+		return null;
+	}
+
+	const { type, name } = parsePropertyId(groupingKey as `note.${string}`);
+	const normalizedPropertyName = name.trim();
+	if (type !== "note" || normalizedPropertyName.length === 0) {
+		return null;
+	}
+
+	return normalizedPropertyName;
+}
+
+export function applyGroupingValueToFrontmatter(
+	frontmatter: Record<string, unknown>,
+	propertyName: string,
+	columnId: string,
+): void {
+	if (columnId === KANBAN_NULL_COLUMN_ID) {
+		delete frontmatter[propertyName];
+		return;
+	}
+
+	frontmatter[propertyName] =
+		columnId === KANBAN_EMPTY_COLUMN_ID ? "" : columnId;
+}
 
 export function getGroupTitle(
 	group: Pick<BasesEntryGroup, "key" | "hasKey">,
@@ -82,6 +120,9 @@ class BasesKanbanScaffoldView extends BasesView {
 	private boardEl: HTMLElement | null = null;
 	private draggedColumnEl: HTMLElement | null = null;
 	private activeColumnSlotEl: HTMLElement | null = null;
+	private draggedCardEl: HTMLElement | null = null;
+	private draggedCardSourceColumnId: string | null = null;
+	private activeCardSlotEl: HTMLElement | null = null;
 	private lastObservedSortKey: string | null = null;
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
@@ -92,6 +133,7 @@ class BasesKanbanScaffoldView extends BasesView {
 	onDataUpdated(): void {
 		this.syncCardOrdersWithCurrentSort();
 		this.resetColumnInteractionState();
+		this.resetCardInteractionState();
 		this.containerEl.empty();
 		this.boardEl = null;
 
@@ -157,6 +199,16 @@ class BasesKanbanScaffoldView extends BasesView {
 		});
 
 		const cardsEl = columnEl.createEl("ul", { cls: "bases-kanban-cards" });
+		if (canReorderCards) {
+			cardsEl.addEventListener("dragover", (event) => {
+				this.handleCardListDragOver(event, cardsEl);
+			});
+			cardsEl.addEventListener("drop", (event) => {
+				void this.handleCardListDrop(event, cardsEl);
+			});
+			this.renderCardDropSlot(cardsEl);
+		}
+
 		if (group.entries.length === 0) {
 			columnEl.createEl("p", {
 				cls: "bases-kanban-empty",
@@ -167,6 +219,9 @@ class BasesKanbanScaffoldView extends BasesView {
 
 		for (const entry of getOrderedEntriesForGroup(this, group)) {
 			this.renderCard(cardsEl, group, entry, canReorderCards);
+			if (canReorderCards) {
+				this.renderCardDropSlot(cardsEl);
+			}
 		}
 	}
 
@@ -179,6 +234,7 @@ class BasesKanbanScaffoldView extends BasesView {
 		const cardEl = cardsEl.createEl("li", {
 			cls: "bases-kanban-card",
 		});
+		cardEl.setAttribute(CARD_ID_ATTR, getCardId(entry));
 		const titleEl = cardEl.createEl("button", {
 			cls: "bases-kanban-card-link",
 			attr: {
@@ -196,6 +252,13 @@ class BasesKanbanScaffoldView extends BasesView {
 			);
 		});
 		if (canReorderCards) {
+			cardEl.draggable = true;
+			cardEl.addEventListener("dragstart", (event) => {
+				this.handleCardDragStart(event, cardEl);
+			});
+			cardEl.addEventListener("dragend", () => {
+				this.handleCardDragEnd();
+			});
 			cardEl.addEventListener("contextmenu", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
@@ -205,6 +268,7 @@ class BasesKanbanScaffoldView extends BasesView {
 				this.handleCardOrderKeyDown(event, titleEl, group, entry);
 			});
 		}
+		titleEl.draggable = false;
 
 		this.renderCardProperties(cardEl, entry);
 	}
@@ -451,6 +515,143 @@ class BasesKanbanScaffoldView extends BasesView {
 		writeCurrentColumnOrder(this, columnOrder);
 	}
 
+	// Card drag and drop
+	private handleCardDragStart(event: DragEvent, cardEl: HTMLElement): void {
+		event.stopPropagation();
+		this.draggedCardEl = cardEl;
+		this.draggedCardSourceColumnId =
+			cardEl
+				.closest<HTMLElement>(".bases-kanban-column")
+				?.getAttribute(COLUMN_ID_ATTR) ?? null;
+		cardEl.classList.add(CARD_DRAGGING_CLASS);
+
+		if (!event.dataTransfer) {
+			return;
+		}
+
+		event.dataTransfer.effectAllowed = "move";
+		event.dataTransfer.setData(
+			"text/plain",
+			cardEl.getAttribute(CARD_ID_ATTR) ?? "",
+		);
+		const previewEl = this.createDragPreview(
+			cardEl,
+			"bases-kanban-card--drag-preview",
+		);
+		event.dataTransfer.setDragImage(previewEl, 16, 16);
+	}
+
+	private handleCardDragEnd(): void {
+		this.resetCardInteractionState();
+	}
+
+	private handleCardListDragOver(
+		event: DragEvent,
+		cardsEl: HTMLElement,
+	): void {
+		if (!this.draggedCardEl) {
+			return;
+		}
+
+		const targetColumnId = cardsEl
+			.closest<HTMLElement>(".bases-kanban-column")
+			?.getAttribute(COLUMN_ID_ATTR) ?? null;
+		if (!this.canDropDraggedCardInColumn(targetColumnId)) {
+			this.setActiveCardSlot(null);
+			return;
+		}
+
+		event.preventDefault();
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = "move";
+		}
+
+		this.setActiveCardSlot(this.getNearestCardSlot(cardsEl, event.clientY));
+	}
+
+	private async handleCardListDrop(
+		event: DragEvent,
+		cardsEl: HTMLElement,
+	): Promise<void> {
+		if (!this.draggedCardEl) {
+			return;
+		}
+
+		event.preventDefault();
+		const slotEl =
+			this.activeCardSlotEl ?? this.getNearestCardSlot(cardsEl, event.clientY);
+		this.setActiveCardSlot(null);
+		if (!slotEl) {
+			return;
+		}
+
+		const cardId = this.draggedCardEl.getAttribute(CARD_ID_ATTR);
+		const sourceColumnEl = this.draggedCardEl.closest<HTMLElement>(
+			".bases-kanban-column",
+		);
+		const targetColumnEl = cardsEl.closest<HTMLElement>(".bases-kanban-column");
+		const sourceColumnId = sourceColumnEl?.getAttribute(COLUMN_ID_ATTR);
+		const targetColumnId = targetColumnEl?.getAttribute(COLUMN_ID_ATTR);
+		if (
+			!cardId ||
+			!sourceColumnEl ||
+			!targetColumnEl ||
+			!sourceColumnId ||
+			!targetColumnId
+		) {
+			return;
+		}
+
+		const sourceGroup = this.getRenderedGroup(sourceColumnId);
+		const targetGroup = this.getRenderedGroup(targetColumnId);
+		if (!sourceGroup || !targetGroup) {
+			return;
+		}
+
+		const sourceVisibleCardOrder = this.getRenderedCardOrder(sourceColumnEl);
+		const sourceVisibleIndex = sourceVisibleCardOrder.indexOf(cardId);
+		const targetSlotIndex = this.getChildIndex(
+			cardsEl,
+			slotEl,
+			".bases-kanban-card-drop-slot",
+		);
+		if (sourceVisibleIndex === -1 || targetSlotIndex === -1) {
+			return;
+		}
+
+		const groupedData = [...this.data.groupedData];
+		const sourceCardOrder = getCardOrderForGroup(this, sourceGroup);
+		if (!sourceCardOrder.includes(cardId)) {
+			return;
+		}
+
+		if (sourceColumnId === targetColumnId) {
+			this.handleSameColumnCardDrop({
+				cardId,
+				columnId: sourceColumnId,
+				groupedData,
+				sourceCardOrder,
+				sourceVisibleCardOrder,
+				sourceVisibleIndex,
+				targetSlotIndex,
+			});
+			return;
+		}
+
+		const targetCardOrder = getCardOrderForGroup(this, targetGroup);
+		const targetVisibleCardOrder = this.getRenderedCardOrder(targetColumnEl);
+		await this.handleCrossColumnCardDrop({
+			cardId,
+			sourceColumnId,
+			targetColumnId,
+			groupedData,
+			sourceCardOrder,
+			targetCardOrder,
+			targetVisibleCardOrder,
+			targetSlotIndex,
+		});
+	}
+
 	// Column drag and drop
 	private handleColumnDragStart(
 		event: DragEvent,
@@ -595,7 +796,7 @@ class BasesKanbanScaffoldView extends BasesView {
 			return sourceEl;
 		}
 
-		previewEl.classList.remove(COLUMN_DRAGGING_CLASS);
+		previewEl.classList.remove(COLUMN_DRAGGING_CLASS, CARD_DRAGGING_CLASS);
 		previewEl.classList.add(DRAG_PREVIEW_CLASS, previewClassName);
 		previewEl.style.width = `${sourceEl.getBoundingClientRect().width}px`;
 
@@ -611,5 +812,208 @@ class BasesKanbanScaffoldView extends BasesView {
 
 		this.setActiveColumnSlot(null);
 		this.draggedColumnEl = null;
+	}
+
+	private renderCardDropSlot(parentEl: HTMLElement): void {
+		parentEl.createEl("li", {
+			cls: "bases-kanban-card-drop-slot",
+			attr: {
+				"aria-hidden": "true",
+			},
+		});
+	}
+
+	private handleSameColumnCardDrop(params: {
+		cardId: string;
+		columnId: string;
+		groupedData: BasesEntryGroup[];
+		sourceCardOrder: string[];
+		sourceVisibleCardOrder: string[];
+		sourceVisibleIndex: number;
+		targetSlotIndex: number;
+	}): void {
+		const {
+			cardId,
+			columnId,
+			groupedData,
+			sourceCardOrder,
+			sourceVisibleCardOrder,
+			sourceVisibleIndex,
+			targetSlotIndex,
+		} = params;
+		let targetVisibleIndex = targetSlotIndex;
+		if (targetSlotIndex > sourceVisibleIndex) {
+			targetVisibleIndex -= 1;
+		}
+
+		writeCurrentCardOrder(
+			this,
+			groupedData,
+			columnId,
+			moveCardToVisibleIndex(
+				sourceCardOrder,
+				sourceVisibleCardOrder,
+				cardId,
+				targetVisibleIndex,
+			),
+		);
+	}
+
+	private async handleCrossColumnCardDrop(params: {
+		cardId: string;
+		sourceColumnId: string;
+		targetColumnId: string;
+		groupedData: BasesEntryGroup[];
+		sourceCardOrder: string[];
+		targetCardOrder: string[];
+		targetVisibleCardOrder: string[];
+		targetSlotIndex: number;
+	}): Promise<void> {
+		const {
+			cardId,
+			sourceColumnId,
+			targetColumnId,
+			groupedData,
+			sourceCardOrder,
+			targetCardOrder,
+			targetVisibleCardOrder,
+			targetSlotIndex,
+		} = params;
+		const targetPropertyName = this.getWritableGroupingPropertyNameForMoves();
+		if (targetPropertyName === null) {
+			return;
+		}
+
+		const nextSourceCardOrder = sourceCardOrder.filter(
+			(currentCardId) => currentCardId !== cardId,
+		);
+		const nextTargetCardOrder = moveCardToVisibleIndex(
+			targetCardOrder,
+			targetVisibleCardOrder,
+			cardId,
+			targetSlotIndex,
+		);
+
+		try {
+			await this.persistCardGroupChange(cardId, targetPropertyName, targetColumnId);
+		} catch {
+			new Notice("Couldn't move that note to the new group.");
+			return;
+		}
+
+		writeCurrentCardOrders(this, groupedData, {
+			[sourceColumnId]: nextSourceCardOrder,
+			[targetColumnId]: nextTargetCardOrder,
+		});
+	}
+
+	private getRenderedGroup(columnId: string): BasesEntryGroup | undefined {
+		return this.data.groupedData.find(
+			(group) => getGroupColumnId(group) === columnId,
+		);
+	}
+
+	private canDropDraggedCardInColumn(targetColumnId: string | null): boolean {
+		const sourceColumnId =
+			this.draggedCardSourceColumnId ??
+			this.draggedCardEl
+				?.closest<HTMLElement>(".bases-kanban-column")
+				?.getAttribute(COLUMN_ID_ATTR) ??
+			null;
+		if (!sourceColumnId || !targetColumnId) {
+			return false;
+		}
+
+		return (
+			sourceColumnId === targetColumnId ||
+			this.getWritableGroupingPropertyNameForMoves() !== null
+		);
+	}
+
+	private getWritableGroupingPropertyNameForMoves(): string | null {
+		return getWritableGroupingPropertyName(getCurrentGroupingKey(this));
+	}
+
+	private async persistCardGroupChange(
+		cardId: string,
+		propertyName: string,
+		targetColumnId: string,
+	): Promise<void> {
+		const entry = this.data.data.find(
+			(candidate) => getCardId(candidate) === cardId,
+		);
+		if (!entry) {
+			return;
+		}
+
+		await this.app.fileManager.processFrontMatter(
+			entry.file,
+			(frontmatter: Record<string, unknown>) => {
+				applyGroupingValueToFrontmatter(
+					frontmatter,
+					propertyName,
+					targetColumnId,
+				);
+			},
+		);
+	}
+
+	private getRenderedCardOrder(columnEl: HTMLElement): string[] {
+		return Array.from(
+			columnEl.querySelectorAll(
+				":scope > .bases-kanban-cards > .bases-kanban-card",
+			),
+		)
+			.filter(
+				(cardNode): cardNode is HTMLElement => cardNode instanceof HTMLElement,
+			)
+			.map((cardEl) => cardEl.getAttribute(CARD_ID_ATTR))
+			.filter((cardId): cardId is string => cardId !== null);
+	}
+
+	private getNearestCardSlot(
+		cardsEl: HTMLElement,
+		clientY: number,
+	): HTMLElement | null {
+		const slots = Array.from(
+			cardsEl.querySelectorAll(".bases-kanban-card-drop-slot"),
+		).filter(
+			(slotNode): slotNode is HTMLElement => slotNode instanceof HTMLElement,
+		);
+
+		let nearestSlot: HTMLElement | null = null;
+		let nearestDistance = Number.POSITIVE_INFINITY;
+
+		for (const slotEl of slots) {
+			const rect = slotEl.getBoundingClientRect();
+			const slotCenter = rect.top + rect.height / 2;
+			const distance = Math.abs(clientY - slotCenter);
+			if (distance < nearestDistance) {
+				nearestDistance = distance;
+				nearestSlot = slotEl;
+			}
+		}
+
+		return nearestSlot;
+	}
+
+	private setActiveCardSlot(slotEl: HTMLElement | null): void {
+		if (this.activeCardSlotEl === slotEl) {
+			return;
+		}
+
+		this.activeCardSlotEl?.classList.remove(COLUMN_DROP_SLOT_ACTIVE_CLASS);
+		this.activeCardSlotEl = slotEl;
+		this.activeCardSlotEl?.classList.add(COLUMN_DROP_SLOT_ACTIVE_CLASS);
+	}
+
+	private resetCardInteractionState(): void {
+		if (this.draggedCardEl) {
+			this.draggedCardEl.classList.remove(CARD_DRAGGING_CLASS);
+		}
+
+		this.setActiveCardSlot(null);
+		this.draggedCardSourceColumnId = null;
+		this.draggedCardEl = null;
 	}
 }

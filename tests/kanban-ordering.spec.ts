@@ -14,11 +14,13 @@ import {
 	getOrderedGroupsForCurrentGrouping,
 	moveCardToBoundary,
 	moveCardToIndex,
+	moveCardToVisibleIndex,
 	moveColumnByOffset,
 	moveColumnToIndex,
 	readKanbanState,
 	writeColumnOrder,
 	writeCurrentCardOrder,
+	writeCurrentCardOrders,
 	writeCurrentColumnOrder,
 } from "../src/kanban-ordering";
 
@@ -366,6 +368,30 @@ describe("moveCardToBoundary", () => {
 	});
 });
 
+describe("moveCardToVisibleIndex", () => {
+	it("moves a visible card without dropping hidden saved cards", () => {
+		expect(
+			moveCardToVisibleIndex(
+				["Hidden/a.md", "Tasks/b.md", "Tasks/c.md"],
+				["Tasks/b.md", "Tasks/c.md"],
+				"Tasks/c.md",
+				0,
+			),
+		).toEqual(["Hidden/a.md", "Tasks/c.md", "Tasks/b.md"]);
+	});
+
+	it("inserts a moved card at the requested visible position in another column", () => {
+		expect(
+			moveCardToVisibleIndex(
+				["Hidden/d.md", "Tasks/e.md"],
+				["Tasks/e.md"],
+				"Tasks/c.md",
+				0,
+			),
+		).toEqual(["Hidden/d.md", "Tasks/c.md", "Tasks/e.md"]);
+	});
+});
+
 describe("getOrderedGroupsForCurrentGrouping", () => {
 	const backlogGroup = createGroup("Backlog", []);
 	const doneGroup = createGroup("Done", []);
@@ -577,6 +603,40 @@ describe("writeCurrentCardOrder", () => {
 			cardOrders: {
 				"note.status": {
 					Backlog: ["Tasks/b.md", "Tasks/a.md"],
+				},
+			},
+		});
+	});
+});
+
+describe("writeCurrentCardOrders", () => {
+	it("writes updates for multiple columns in one board-state change", () => {
+		const backlogGroup = createGroup("Backlog", [
+			createEntry("Tasks/a.md"),
+			createEntry("Tasks/b.md"),
+		]);
+		const doneGroup = createGroup("Done", [createEntry("Tasks/c.md")]);
+		const store = createKanbanViewStore({
+			kanbanState: {
+				columnOrders: {
+					"note.status": ["Backlog", "Done"],
+				},
+			},
+		});
+
+		writeCurrentCardOrders(store.view, [backlogGroup, doneGroup], {
+			Backlog: ["Tasks/a.md"],
+			Done: ["Tasks/c.md", "Tasks/b.md"],
+		});
+
+		expect(store.readState()).toEqual({
+			columnOrders: {
+				"note.status": ["Backlog", "Done"],
+			},
+			cardOrders: {
+				"note.status": {
+					Backlog: ["Tasks/a.md"],
+					Done: ["Tasks/c.md", "Tasks/b.md"],
 				},
 			},
 		});

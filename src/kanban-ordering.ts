@@ -180,6 +180,16 @@ export function writeCurrentCardOrder(
 	columnId: string,
 	cardOrder: string[],
 ): boolean {
+	return writeCurrentCardOrders(view, groups, {
+		[columnId]: cardOrder,
+	});
+}
+
+export function writeCurrentCardOrders(
+	view: KanbanOrderingView,
+	groups: BasesEntryGroup[],
+	columnCardOrders: Record<string, string[]>,
+): boolean {
 	const groupingKey = getCurrentGroupingKey(view);
 	if (groupingKey === null) {
 		return false;
@@ -189,34 +199,33 @@ export function writeCurrentCardOrder(
 	const currentBoardCardOrders = hasManualCardOrderForGrouping(state, groupingKey)
 		? (state.cardOrders[groupingKey] ?? {})
 		: {};
-	const nextCardOrder = getUniqueStrings(cardOrder);
-	const currentCardOrder =
-		currentBoardCardOrders[columnId] ??
-		getLiveCardOrderForColumn(groups, columnId);
-	if (hasSameItems(currentCardOrder, nextCardOrder)) {
+	const currentComparableBoardCardOrders = getComparableBoardCardOrders(
+		currentBoardCardOrders,
+		groups,
+	);
+	const nextBoardCardOrders = { ...currentComparableBoardCardOrders };
+
+	for (const [columnId, cardOrder] of Object.entries(columnCardOrders)) {
+		const nextCardOrder = getUniqueStrings(cardOrder);
+		if (nextCardOrder.length === 0) {
+			delete nextBoardCardOrders[columnId];
+			continue;
+		}
+
+		nextBoardCardOrders[columnId] = nextCardOrder;
+	}
+
+	if (
+		hasSameBoardCardOrders(
+			currentComparableBoardCardOrders,
+			nextBoardCardOrders,
+		)
+	) {
 		return false;
 	}
 
 	const rawStateValue = view.config.get(KANBAN_STATE_KEY);
 	const rawState = isRecord(rawStateValue) ? rawStateValue : {};
-	const nextBoardCardOrders = { ...currentBoardCardOrders };
-
-	for (const group of groups) {
-		const visibleColumnId = getGroupColumnId(group);
-		if (!(visibleColumnId in nextBoardCardOrders)) {
-			const liveCardOrder = getLiveCardOrder(group.entries);
-			if (liveCardOrder.length > 0) {
-				nextBoardCardOrders[visibleColumnId] = liveCardOrder;
-			}
-		}
-	}
-
-	if (nextCardOrder.length === 0) {
-		delete nextBoardCardOrders[columnId];
-	} else {
-		nextBoardCardOrders[columnId] = nextCardOrder;
-	}
-
 	const nextCardOrders = { ...state.cardOrders };
 	if (Object.keys(nextBoardCardOrders).length === 0) {
 		delete nextCardOrders[groupingKey];
@@ -312,6 +321,58 @@ export function moveCardToBoundary(
 	);
 }
 
+// Preserve the full saved order, including hidden cards, while moving a card
+// relative to the currently visible cards rendered in the board.
+export function moveCardToVisibleIndex(
+	cardOrder: string[],
+	visibleCardOrder: string[],
+	cardId: string,
+	targetVisibleIndex: number,
+): string[] {
+	const remainingCardOrder = cardOrder.filter(
+		(currentCardId) => currentCardId !== cardId,
+	);
+	const visibleCardIds = new Set(getUniqueStrings([...visibleCardOrder, cardId]));
+	const remainingVisibleCardOrder = remainingCardOrder.filter((currentCardId) =>
+		visibleCardIds.has(currentCardId),
+	);
+	const clampedVisibleIndex = Math.max(
+		0,
+		Math.min(targetVisibleIndex, remainingVisibleCardOrder.length),
+	);
+
+	if (remainingVisibleCardOrder.length === 0) {
+		return [cardId, ...remainingCardOrder];
+	}
+
+	if (clampedVisibleIndex === remainingVisibleCardOrder.length) {
+		const lastVisibleCardId =
+			remainingVisibleCardOrder[remainingVisibleCardOrder.length - 1];
+		if (typeof lastVisibleCardId !== "string") {
+			return [cardId, ...remainingCardOrder];
+		}
+
+		const insertionIndex = remainingCardOrder.indexOf(lastVisibleCardId) + 1;
+		return [
+			...remainingCardOrder.slice(0, insertionIndex),
+			cardId,
+			...remainingCardOrder.slice(insertionIndex),
+		];
+	}
+
+	const anchorCardId = remainingVisibleCardOrder[clampedVisibleIndex];
+	if (typeof anchorCardId !== "string") {
+		return [...remainingCardOrder, cardId];
+	}
+
+	const insertionIndex = remainingCardOrder.indexOf(anchorCardId);
+	return [
+		...remainingCardOrder.slice(0, insertionIndex),
+		cardId,
+		...remainingCardOrder.slice(insertionIndex),
+	];
+}
+
 function createEmptyKanbanState(): KanbanState {
 	return {
 		columnOrders: {},
@@ -351,18 +412,25 @@ function getLiveCardOrder(entries: BasesEntry[]): string[] {
 	return getUniqueStrings(entries.map((entry) => getCardId(entry)));
 }
 
-function getLiveCardOrderForColumn(
+function getComparableBoardCardOrders(
+	boardCardOrders: Record<string, string[]>,
 	groups: BasesEntryGroup[],
-	columnId: string,
-): string[] {
-	const group = groups.find(
-		(currentGroup) => getGroupColumnId(currentGroup) === columnId,
-	);
-	if (!group) {
-		return [];
+): Record<string, string[]> {
+	const comparableBoardCardOrders = { ...boardCardOrders };
+
+	for (const group of groups) {
+		const visibleColumnId = getGroupColumnId(group);
+		if (visibleColumnId in comparableBoardCardOrders) {
+			continue;
+		}
+
+		const liveCardOrder = getLiveCardOrder(group.entries);
+		if (liveCardOrder.length > 0) {
+			comparableBoardCardOrders[visibleColumnId] = liveCardOrder;
+		}
 	}
 
-	return getLiveCardOrder(group.entries);
+	return comparableBoardCardOrders;
 }
 
 function readColumnOrders(value: unknown): Record<string, string[]> {
@@ -441,6 +509,27 @@ function hasSameItems(left: string[], right: string[]): boolean {
 	}
 
 	return left.every((item, index) => item === right[index]);
+}
+
+function hasSameBoardCardOrders(
+	left: Record<string, string[]>,
+	right: Record<string, string[]>,
+): boolean {
+	const leftKeys = Object.keys(left);
+	const rightKeys = Object.keys(right);
+	if (leftKeys.length !== rightKeys.length) {
+		return false;
+	}
+
+	return leftKeys.every((columnId) => {
+		const leftColumnCardOrder = left[columnId];
+		const rightColumnCardOrder = right[columnId];
+		return (
+			Array.isArray(leftColumnCardOrder) &&
+			Array.isArray(rightColumnCardOrder) &&
+			hasSameItems(leftColumnCardOrder, rightColumnCardOrder)
+		);
+	});
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

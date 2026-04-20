@@ -85,11 +85,19 @@
 .bases-kanban-cards {
 	display: flex;
 	flex-direction: column;
-	gap: var(--size-2-2);
 	margin: 0;
 	padding: 0;
 	min-height: 2rem;
 	list-style: none;
+}
+
+.bases-kanban-card-drop-slot {
+	flex: 0 0 auto;
+	height: 3px;
+	margin: var(--size-2-1) 0;
+	border-radius: var(--radius-s);
+	background-color: transparent;
+	transition: background-color 120ms ease;
 }
 
 .bases-kanban-card {
@@ -229,6 +237,10 @@
 	opacity: 0.45;
 }
 
+.bases-kanban-card--dragging {
+	opacity: 0.45;
+}
+
 .bases-kanban-drop-slot--active {
 	background-color: var(--interactive-accent);
 }
@@ -241,6 +253,12 @@
 }
 
 .bases-kanban-column--drag-preview {
+	box-shadow:
+		0 12px 24px rgba(0, 0, 0, 0.18),
+		0 0 0 1px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
+}
+
+.bases-kanban-card--drag-preview {
 	box-shadow:
 		0 12px 24px rgba(0, 0, 0, 0.18),
 		0 0 0 1px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
