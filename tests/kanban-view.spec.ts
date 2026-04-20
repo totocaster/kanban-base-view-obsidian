@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NullValue } from "obsidian";
 import {
 	KANBAN_VIEW_ICON,
 	KANBAN_VIEW_NAME,
@@ -10,12 +11,25 @@ import {
 } from "../src/kanban-view";
 
 describe("getGroupTitle", () => {
+	it("falls back to the default title for ungrouped Bases entries", () => {
+		expect(getGroupTitle({ key: new NullValue(), hasKey: () => false })).toBe(
+			"Ungrouped",
+		);
+	});
+
 	it("falls back to the default title when the key is missing", () => {
-		expect(getGroupTitle({ key: undefined })).toBe("Ungrouped");
+		expect(getGroupTitle({ key: undefined, hasKey: () => false })).toBe(
+			"Ungrouped",
+		);
 	});
 
 	it("trims non-empty group keys", () => {
-		expect(getGroupTitle({ key: "  In progress  " })).toBe("In progress");
+		expect(
+			getGroupTitle({
+				key: { toString: () => "  In progress  " },
+				hasKey: () => true,
+			}),
+		).toBe("In progress");
 	});
 });
 

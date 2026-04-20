@@ -39,7 +39,7 @@ export class NullValue extends Value {
 	renderTo(): void {}
 
 	toString(): string {
-		return "";
+		return "null";
 	}
 }
 

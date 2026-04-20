@@ -20,7 +20,13 @@ export const EMPTY_GROUP_TITLE = "Ungrouped";
 
 type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
 
-export function getGroupTitle(group: Pick<BasesEntryGroup, "key">): string {
+export function getGroupTitle(
+	group: Pick<BasesEntryGroup, "key" | "hasKey">,
+): string {
+	if (!group.hasKey()) {
+		return EMPTY_GROUP_TITLE;
+	}
+
 	return group.key?.toString().trim() || EMPTY_GROUP_TITLE;
 }
 
