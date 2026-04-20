@@ -1,4 +1,4 @@
-import type { BasesEntryGroup, BasesViewConfig } from "obsidian";
+import type { BasesEntry, BasesEntryGroup, BasesViewConfig } from "obsidian";
 import {
 	getCurrentGroupingKeyFromRawKanbanView,
 	type KanbanOrderingView,
@@ -127,6 +127,133 @@ export function getOrderedGroupsForCurrentGrouping(
 	return orderedGroups;
 }
 
+export function getCardId(entry: Pick<BasesEntry, "file">): string {
+	return entry.file.path.trim();
+}
+
+export function getCardOrderForGroup(
+	view: KanbanOrderingView,
+	group: BasesEntryGroup,
+): string[] {
+	const groupingKey = getCurrentGroupingKey(view);
+	if (groupingKey === null) {
+		return getLiveCardOrder(group.entries);
+	}
+
+	const state = readKanbanState(view.config);
+	if (!hasManualCardOrderForGrouping(state, groupingKey)) {
+		return getLiveCardOrder(group.entries);
+	}
+
+	return (
+		state.cardOrders[groupingKey]?.[getGroupColumnId(group)] ??
+		getLiveCardOrder(group.entries)
+	);
+}
+
+export function getOrderedEntriesForGroup(
+	view: KanbanOrderingView,
+	group: BasesEntryGroup,
+): BasesEntry[] {
+	const remainingEntries = new Map(
+		group.entries.map((entry) => [getCardId(entry), entry]),
+	);
+	const orderedEntries: BasesEntry[] = [];
+
+	for (const cardId of getCardOrderForGroup(view, group)) {
+		const entry = remainingEntries.get(cardId);
+		if (!entry) {
+			continue;
+		}
+
+		orderedEntries.push(entry);
+		remainingEntries.delete(cardId);
+	}
+
+	orderedEntries.push(...remainingEntries.values());
+	return orderedEntries;
+}
+
+export function writeCurrentCardOrder(
+	view: KanbanOrderingView,
+	groups: BasesEntryGroup[],
+	columnId: string,
+	cardOrder: string[],
+): boolean {
+	const groupingKey = getCurrentGroupingKey(view);
+	if (groupingKey === null) {
+		return false;
+	}
+
+	const state = readKanbanState(view.config);
+	const currentBoardCardOrders = hasManualCardOrderForGrouping(state, groupingKey)
+		? (state.cardOrders[groupingKey] ?? {})
+		: {};
+	const nextCardOrder = getUniqueStrings(cardOrder);
+	const currentCardOrder =
+		currentBoardCardOrders[columnId] ??
+		getLiveCardOrderForColumn(groups, columnId);
+	if (hasSameItems(currentCardOrder, nextCardOrder)) {
+		return false;
+	}
+
+	const rawStateValue = view.config.get(KANBAN_STATE_KEY);
+	const rawState = isRecord(rawStateValue) ? rawStateValue : {};
+	const nextBoardCardOrders = { ...currentBoardCardOrders };
+
+	for (const group of groups) {
+		const visibleColumnId = getGroupColumnId(group);
+		if (!(visibleColumnId in nextBoardCardOrders)) {
+			const liveCardOrder = getLiveCardOrder(group.entries);
+			if (liveCardOrder.length > 0) {
+				nextBoardCardOrders[visibleColumnId] = liveCardOrder;
+			}
+		}
+	}
+
+	if (nextCardOrder.length === 0) {
+		delete nextBoardCardOrders[columnId];
+	} else {
+		nextBoardCardOrders[columnId] = nextCardOrder;
+	}
+
+	const nextCardOrders = { ...state.cardOrders };
+	if (Object.keys(nextBoardCardOrders).length === 0) {
+		delete nextCardOrders[groupingKey];
+	} else {
+		nextCardOrders[groupingKey] = nextBoardCardOrders;
+	}
+
+	const nextState: Record<string, unknown> = {
+		...rawState,
+	};
+	if (Object.keys(nextCardOrders).length === 0) {
+		delete nextState.cardOrders;
+	} else {
+		nextState.cardOrders = nextCardOrders;
+	};
+
+	view.config.set(KANBAN_STATE_KEY, nextState);
+	return true;
+}
+
+export function clearCardOrders(config: KanbanStateWriter): boolean {
+	const state = readKanbanState(config);
+	if (Object.keys(state.cardOrders).length === 0) {
+		return false;
+	}
+
+	const rawStateValue = config.get(KANBAN_STATE_KEY);
+	const rawState = isRecord(rawStateValue) ? rawStateValue : {};
+	const nextState: Record<string, unknown> = {
+		...rawState,
+	};
+	delete nextState.cardOrders;
+
+	config.set(KANBAN_STATE_KEY, nextState);
+	return true;
+}
+
 export function moveColumnToIndex(
 	columnOrder: string[],
 	columnId: string,
@@ -165,11 +292,77 @@ export function moveColumnByOffset(
 	return moveColumnToIndex(columnOrder, columnId, sourceIndex + offset);
 }
 
+export function moveCardToIndex(
+	cardOrder: string[],
+	cardId: string,
+	targetIndex: number,
+): string[] {
+	return moveColumnToIndex(cardOrder, cardId, targetIndex);
+}
+
+export function moveCardToBoundary(
+	cardOrder: string[],
+	cardId: string,
+	boundary: "start" | "end",
+): string[] {
+	return moveCardToIndex(
+		cardOrder,
+		cardId,
+		boundary === "start" ? 0 : Math.max(cardOrder.length - 1, 0),
+	);
+}
+
 function createEmptyKanbanState(): KanbanState {
 	return {
 		columnOrders: {},
 		cardOrders: {},
 	};
+}
+
+function hasManualCardOrderForGrouping(
+	state: KanbanState,
+	groupingKey: string,
+): boolean {
+	const currentCardOrders = state.cardOrders[groupingKey];
+	return !!currentCardOrders && Object.keys(currentCardOrders).length > 0;
+}
+
+export function getCurrentSortKey(config: Pick<BasesViewConfig, "getSort">): string {
+	const sorts = config.getSort();
+	if (!Array.isArray(sorts) || sorts.length === 0) {
+		return "";
+	}
+
+	const sortKey = sorts
+		.map((sort) => {
+			const property =
+				typeof sort.property === "string" ? sort.property.trim() : "";
+			const direction =
+				typeof sort.direction === "string" ? sort.direction.trim() : "";
+			return `${property}:${direction}`;
+		})
+		.filter((sortKey) => sortKey !== ":")
+		.join("|");
+
+	return sortKey;
+}
+
+function getLiveCardOrder(entries: BasesEntry[]): string[] {
+	return getUniqueStrings(entries.map((entry) => getCardId(entry)));
+}
+
+function getLiveCardOrderForColumn(
+	groups: BasesEntryGroup[],
+	columnId: string,
+): string[] {
+	const group = groups.find(
+		(currentGroup) => getGroupColumnId(currentGroup) === columnId,
+	);
+	if (!group) {
+		return [];
+	}
+
+	return getLiveCardOrder(group.entries);
 }
 
 function readColumnOrders(value: unknown): Record<string, string[]> {

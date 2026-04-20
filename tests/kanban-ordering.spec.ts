@@ -1,16 +1,24 @@
 import { NullValue } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
 import {
+	clearCardOrders,
 	KANBAN_EMPTY_COLUMN_ID,
 	KANBAN_NULL_COLUMN_ID,
 	KANBAN_STATE_KEY,
+	getCardId,
+	getCardOrderForGroup,
+	getCurrentSortKey,
 	getCurrentGroupingKey,
 	getGroupColumnId,
+	getOrderedEntriesForGroup,
 	getOrderedGroupsForCurrentGrouping,
+	moveCardToBoundary,
+	moveCardToIndex,
 	moveColumnByOffset,
 	moveColumnToIndex,
 	readKanbanState,
 	writeColumnOrder,
+	writeCurrentCardOrder,
 	writeCurrentColumnOrder,
 } from "../src/kanban-ordering";
 
@@ -18,9 +26,14 @@ function createKanbanViewStore(options?: {
 	groupByProperty?: string | null;
 	kanbanState?: unknown;
 	name?: string;
+	sort?: Array<{ property: string; direction: string }>;
 }) {
-	const { groupByProperty = "note.status", kanbanState, name = "My Kanban" } =
-		options ?? {};
+	const {
+		groupByProperty = "note.status",
+		kanbanState,
+		name = "My Kanban",
+		sort = [{ property: "file.basename", direction: "ASC" }],
+	} = options ?? {};
 	let currentKanbanState = kanbanState;
 
 	return {
@@ -30,6 +43,7 @@ function createKanbanViewStore(options?: {
 				name,
 				get: (key: string) =>
 					key === KANBAN_STATE_KEY ? currentKanbanState : undefined,
+				getSort: () => sort,
 				set: vi.fn((key: string, value: unknown) => {
 					if (key === KANBAN_STATE_KEY) {
 						currentKanbanState = value;
@@ -52,6 +66,28 @@ function createKanbanViewStore(options?: {
 			},
 		},
 		readState: () => currentKanbanState,
+	};
+}
+
+function createEntry(path: string) {
+	return {
+		file: {
+			path,
+			basename: path.split("/").at(-1)?.replace(/\.md$/, "") ?? path,
+		},
+	};
+}
+
+function createGroup(name: string | null, entries: ReturnType<typeof createEntry>[]) {
+	return {
+		key:
+			name === null
+				? new NullValue()
+				: {
+						toString: () => name,
+					},
+		hasKey: () => name !== null,
+		entries,
 	};
 }
 
@@ -251,6 +287,33 @@ describe("writeCurrentColumnOrder", () => {
 	});
 });
 
+describe("getCurrentSortKey", () => {
+	it("normalizes the active Bases sort config into one comparable string", () => {
+		const store = createKanbanViewStore({
+			sort: [
+				{ property: "file.basename", direction: "ASC" },
+				{ property: "note.priority", direction: "DESC" },
+			],
+		});
+
+		expect(getCurrentSortKey(store.view.config)).toBe(
+			"file.basename:ASC|note.priority:DESC",
+		);
+	});
+
+	it("returns an empty string when the board is unsorted", () => {
+		const store = createKanbanViewStore({ sort: [] });
+
+		expect(getCurrentSortKey(store.view.config)).toBe("");
+	});
+});
+
+describe("getCardId", () => {
+	it("uses the trimmed note path as the persisted card id", () => {
+		expect(getCardId(createEntry(" Tasks/a.md "))).toBe("Tasks/a.md");
+	});
+});
+
 describe("moveColumnToIndex", () => {
 	it("moves a column to the requested insertion index", () => {
 		expect(
@@ -276,22 +339,37 @@ describe("moveColumnByOffset", () => {
 	});
 });
 
+describe("moveCardToIndex", () => {
+	it("moves a card to the requested insertion index", () => {
+		expect(
+			moveCardToIndex(["Tasks/a.md", "Tasks/b.md", "Tasks/c.md"], "Tasks/c.md", 0),
+		).toEqual(["Tasks/c.md", "Tasks/a.md", "Tasks/b.md"]);
+	});
+});
+
+describe("moveCardToBoundary", () => {
+	it("moves a card to the top or bottom of a column order", () => {
+		expect(
+			moveCardToBoundary(
+				["Tasks/a.md", "Tasks/b.md", "Tasks/c.md"],
+				"Tasks/b.md",
+				"start",
+			),
+		).toEqual(["Tasks/b.md", "Tasks/a.md", "Tasks/c.md"]);
+		expect(
+			moveCardToBoundary(
+				["Tasks/a.md", "Tasks/b.md", "Tasks/c.md"],
+				"Tasks/b.md",
+				"end",
+			),
+		).toEqual(["Tasks/a.md", "Tasks/c.md", "Tasks/b.md"]);
+	});
+});
+
 describe("getOrderedGroupsForCurrentGrouping", () => {
-	const backlogGroup = {
-		key: { toString: () => "Backlog" },
-		hasKey: () => true,
-		entries: [],
-	};
-	const doneGroup = {
-		key: { toString: () => "Done" },
-		hasKey: () => true,
-		entries: [],
-	};
-	const nullGroup = {
-		key: new NullValue(),
-		hasKey: () => false,
-		entries: [],
-	};
+	const backlogGroup = createGroup("Backlog", []);
+	const doneGroup = createGroup("Done", []);
+	const nullGroup = createGroup(null, []);
 
 	it("keeps live group order in auto mode", () => {
 		const store = createKanbanViewStore({ groupByProperty: "note.status" });
@@ -351,5 +429,203 @@ describe("getOrderedGroupsForCurrentGrouping", () => {
 		expect(
 			getOrderedGroupsForCurrentGrouping(store.view, [backlogGroup, doneGroup]),
 		).toEqual([backlogGroup, doneGroup]);
+	});
+});
+
+describe("getCardOrderForGroup", () => {
+	it("uses live card order when no manual order exists for the current scope", () => {
+		const backlogGroup = createGroup("Backlog", [
+			createEntry("Tasks/a.md"),
+			createEntry("Tasks/b.md"),
+		]);
+		const store = createKanbanViewStore();
+
+		expect(getCardOrderForGroup(store.view, backlogGroup)).toEqual([
+			"Tasks/a.md",
+			"Tasks/b.md",
+		]);
+	});
+
+	it("uses the saved manual card order for the current grouping", () => {
+		const backlogGroup = createGroup("Backlog", [
+			createEntry("Tasks/a.md"),
+			createEntry("Tasks/b.md"),
+		]);
+		const store = createKanbanViewStore({
+			kanbanState: {
+				cardOrders: {
+					"note.status": {
+						Backlog: ["Tasks/b.md", "Tasks/a.md"],
+					},
+				},
+			},
+		});
+
+		expect(getCardOrderForGroup(store.view, backlogGroup)).toEqual([
+			"Tasks/b.md",
+			"Tasks/a.md",
+		]);
+	});
+});
+
+describe("getOrderedEntriesForGroup", () => {
+	it("reorders visible cards and appends newly visible ones", () => {
+		const backlogGroup = createGroup("Backlog", [
+			createEntry("Tasks/a.md"),
+			createEntry("Tasks/b.md"),
+			createEntry("Tasks/c.md"),
+		]);
+		const store = createKanbanViewStore({
+			kanbanState: {
+				cardOrders: {
+					"note.status": {
+						Backlog: ["Tasks/b.md", "Tasks/a.md"],
+					},
+				},
+			},
+		});
+
+		expect(
+			getOrderedEntriesForGroup(store.view, backlogGroup).map((entry) => entry.file.path),
+		).toEqual(["Tasks/b.md", "Tasks/a.md", "Tasks/c.md"]);
+	});
+});
+
+describe("writeCurrentCardOrder", () => {
+	it("writes full-board card order for the current grouping", () => {
+		const backlogGroup = createGroup("Backlog", [
+			createEntry("Tasks/a.md"),
+			createEntry("Tasks/b.md"),
+		]);
+		const doneGroup = createGroup("Done", [createEntry("Tasks/c.md")]);
+		const store = createKanbanViewStore({
+			kanbanState: {
+				probeUnknown: {
+					keepMe: true,
+				},
+				columnOrders: {
+					"note.status": ["Backlog", "Done"],
+				},
+			},
+		});
+
+		writeCurrentCardOrder(store.view, [backlogGroup, doneGroup], "Backlog", [
+			"Tasks/b.md",
+			"Tasks/a.md",
+		]);
+
+		expect(store.readState()).toEqual({
+			probeUnknown: {
+				keepMe: true,
+			},
+			columnOrders: {
+				"note.status": ["Backlog", "Done"],
+			},
+			cardOrders: {
+				"note.status": {
+					Backlog: ["Tasks/b.md", "Tasks/a.md"],
+					Done: ["Tasks/c.md"],
+				},
+			},
+		});
+	});
+
+	it("does not create manual board order for a no-op move", () => {
+		const backlogGroup = createGroup("Backlog", [
+			createEntry("Tasks/a.md"),
+			createEntry("Tasks/b.md"),
+		]);
+		const store = createKanbanViewStore({
+			kanbanState: {
+				columnOrders: {
+					"note.status": ["Backlog"],
+				},
+			},
+		});
+
+		expect(
+			writeCurrentCardOrder(store.view, [backlogGroup], "Backlog", [
+				"Tasks/a.md",
+				"Tasks/b.md",
+			]),
+		).toBe(false);
+		expect(store.readState()).toEqual({
+			columnOrders: {
+				"note.status": ["Backlog"],
+			},
+		});
+	});
+
+	it("preserves hidden cards already stored in a manual board order", () => {
+		const backlogGroup = createGroup("Backlog", [createEntry("Tasks/b.md")]);
+			const store = createKanbanViewStore({
+				kanbanState: {
+					cardOrders: {
+						"note.status": {
+							Backlog: ["Tasks/a.md", "Tasks/b.md"],
+						},
+					},
+				},
+			});
+
+		writeCurrentCardOrder(store.view, [backlogGroup], "Backlog", [
+			"Tasks/b.md",
+			"Tasks/a.md",
+		]);
+
+		expect(store.readState()).toEqual({
+			cardOrders: {
+				"note.status": {
+					Backlog: ["Tasks/b.md", "Tasks/a.md"],
+				},
+			},
+		});
+	});
+});
+
+describe("clearCardOrders", () => {
+	it("deletes all manual card order while preserving other kanban state", () => {
+		const store = createKanbanViewStore({
+			kanbanState: {
+				probeUnknown: {
+					keepMe: true,
+				},
+				columnOrders: {
+					"note.status": ["Backlog"],
+				},
+				cardOrders: {
+					"note.status": {
+						Backlog: ["Tasks/a.md"],
+					},
+				},
+			},
+		});
+
+		expect(clearCardOrders(store.view.config)).toBe(true);
+		expect(store.readState()).toEqual({
+			probeUnknown: {
+				keepMe: true,
+			},
+			columnOrders: {
+				"note.status": ["Backlog"],
+			},
+		});
+	});
+
+	it("returns false when there is no manual card order to clear", () => {
+		const store = createKanbanViewStore({
+			kanbanState: {
+				columnOrders: {
+					"note.status": ["Backlog"],
+				},
+			},
+		});
+
+		expect(clearCardOrders(store.view.config)).toBe(false);
+		expect(store.readState()).toEqual({
+			columnOrders: {
+				"note.status": ["Backlog"],
+			},
+		});
 	});
 });

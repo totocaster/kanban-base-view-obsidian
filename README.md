@@ -9,3 +9,13 @@ This is an intentional tradeoff: it uses observed runtime shape because the docu
 Initial implementation landed in commit `844be83`.
 
 I might be missing something though. Would like to discuss.
+
+## Note on ordering behavior
+
+Card ordering has two "modes" (not a user facing term), automatic and manual.
+
+In automatic mode, the board simply follows the active Bases sort. If the user chooses a sort from the Obsidian Bases UI, the cards should appear in that order and no manual card arrangement is treated as active.
+
+In manual mode, the user has started rearranging cards directly. At that point, the board behaves like a fixed snapshot of the current grouped board rather than continuing to follow the live Bases sort for card order.
+
+Manual mode is reset as soon as the user changes the Bases sort again.

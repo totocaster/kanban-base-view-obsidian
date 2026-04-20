@@ -13,9 +13,16 @@ import type {
 	QueryController,
 } from "obsidian";
 import {
+	clearCardOrders,
+	getCardId,
+	getCardOrderForGroup,
+	getCurrentSortKey,
 	getCurrentGroupingKey,
 	getGroupColumnId,
+	getOrderedEntriesForGroup,
 	getOrderedGroupsForCurrentGrouping,
+	moveCardToBoundary,
+	writeCurrentCardOrder,
 	moveColumnByOffset,
 	moveColumnToIndex,
 	writeCurrentColumnOrder,
@@ -75,6 +82,7 @@ class BasesKanbanScaffoldView extends BasesView {
 	private boardEl: HTMLElement | null = null;
 	private draggedColumnEl: HTMLElement | null = null;
 	private activeColumnSlotEl: HTMLElement | null = null;
+	private lastObservedSortKey: string | null = null;
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
 		super(controller);
@@ -82,6 +90,7 @@ class BasesKanbanScaffoldView extends BasesView {
 	}
 
 	onDataUpdated(): void {
+		this.syncCardOrdersWithCurrentSort();
 		this.resetColumnInteractionState();
 		this.containerEl.empty();
 		this.boardEl = null;
@@ -108,7 +117,11 @@ class BasesKanbanScaffoldView extends BasesView {
 	private renderGroup(boardEl: HTMLElement, group: BasesEntryGroup): void {
 		const columnId = getGroupColumnId(group);
 		const columnTitle = getGroupTitle(group);
-		const canReorderColumns = getCurrentGroupingKey(this) !== null;
+		// Card ordering is scoped to the active grouping. If we cannot resolve a
+		// usable groupBy property at runtime, manual card reordering must stay off.
+		const hasActiveGrouping = getCurrentGroupingKey(this) !== null;
+		const canReorderColumns = hasActiveGrouping;
+		const canReorderCards = hasActiveGrouping;
 		const columnEl = boardEl.createEl("section", { cls: "bases-kanban-column" });
 		columnEl.setAttribute(COLUMN_ID_ATTR, columnId);
 		const headingEl = columnEl.createEl("header", {
@@ -152,12 +165,17 @@ class BasesKanbanScaffoldView extends BasesView {
 			return;
 		}
 
-		for (const entry of group.entries) {
-			this.renderCard(cardsEl, entry);
+		for (const entry of getOrderedEntriesForGroup(this, group)) {
+			this.renderCard(cardsEl, group, entry, canReorderCards);
 		}
 	}
 
-	private renderCard(cardsEl: HTMLElement, entry: BasesEntry): void {
+	private renderCard(
+		cardsEl: HTMLElement,
+		group: BasesEntryGroup,
+		entry: BasesEntry,
+		canReorderCards: boolean,
+	): void {
 		const cardEl = cardsEl.createEl("li", {
 			cls: "bases-kanban-card",
 		});
@@ -177,6 +195,16 @@ class BasesKanbanScaffoldView extends BasesView {
 				Keymap.isModEvent(event),
 			);
 		});
+		if (canReorderCards) {
+			cardEl.addEventListener("contextmenu", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				this.openCardOrderMenu(event, group, entry);
+			});
+			titleEl.addEventListener("keydown", (event) => {
+				this.handleCardOrderKeyDown(event, titleEl, group, entry);
+			});
+		}
 
 		this.renderCardProperties(cardEl, entry);
 	}
@@ -250,6 +278,93 @@ class BasesKanbanScaffoldView extends BasesView {
 	private shouldShowEmptyProperties(): boolean {
 		const value = this.config.get(SHOW_EMPTY_PROPERTIES_KEY);
 		return typeof value === "boolean" ? value : true;
+	}
+
+	private syncCardOrdersWithCurrentSort(): void {
+		const currentSortKey = getCurrentSortKey(this.config);
+		if (
+			this.lastObservedSortKey !== null &&
+			this.lastObservedSortKey !== currentSortKey
+		) {
+			clearCardOrders(this.config);
+		}
+
+		this.lastObservedSortKey = currentSortKey;
+	}
+
+	// Card ordering menu actions
+	private openCardOrderMenu(
+		event: MouseEvent,
+		group: BasesEntryGroup,
+		entry: BasesEntry,
+	): void {
+		this.buildCardOrderMenu(group, entry)?.showAtMouseEvent(event);
+	}
+
+	private handleCardOrderKeyDown(
+		event: KeyboardEvent,
+		titleEl: HTMLElement,
+		group: BasesEntryGroup,
+		entry: BasesEntry,
+	): void {
+		if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		const rect = titleEl.getBoundingClientRect();
+		this.buildCardOrderMenu(group, entry)?.showAtPosition({
+			x: rect.left,
+			y: rect.bottom,
+			width: rect.width,
+		});
+	}
+
+	private buildCardOrderMenu(
+		group: BasesEntryGroup,
+		entry: BasesEntry,
+	): Menu | null {
+		const cardOrder = getCardOrderForGroup(this, group);
+		const cardId = getCardId(entry);
+		const cardIndex = cardOrder.indexOf(cardId);
+		if (cardIndex === -1) {
+			return null;
+		}
+
+		const menu = new Menu();
+		menu.addItem((item) => {
+			item
+				.setTitle("Move to top")
+				.setIcon("arrow-up")
+				.setDisabled(cardIndex === 0)
+				.onClick(() => {
+					this.applyCardBoundaryMove(group, cardId, "start");
+				});
+		});
+		menu.addItem((item) => {
+			item
+				.setTitle("Move to bottom")
+				.setIcon("arrow-down")
+				.setDisabled(cardIndex === cardOrder.length - 1)
+				.onClick(() => {
+					this.applyCardBoundaryMove(group, cardId, "end");
+				});
+		});
+		return menu;
+	}
+
+	private applyCardBoundaryMove(
+		group: BasesEntryGroup,
+		cardId: string,
+		boundary: "start" | "end",
+	): void {
+		writeCurrentCardOrder(
+			this,
+			this.data.groupedData,
+			getGroupColumnId(group),
+			moveCardToBoundary(getCardOrderForGroup(this, group), cardId, boundary),
+		);
 	}
 
 	// Column menu building and actions
