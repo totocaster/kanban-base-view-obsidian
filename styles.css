@@ -1,18 +1,41 @@
 .bases-kanban-view {
-	height: 100%;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	min-height: 100%;
+	min-width: 0;
 }
 
 .bases-kanban-board {
+	box-sizing: border-box;
 	display: flex;
-	align-items: flex-start;
+	flex: 1 1 auto;
+	width: 100%;
+	min-height: 100%;
+	min-width: 0;
+	align-items: stretch;
 	gap: var(--size-4-3);
 	overflow-x: auto;
-	padding: var(--size-4-2);
+	padding: var(--size-4-3) var(--size-4-4) var(--size-2-2);
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+.bases-kanban-board::-webkit-scrollbar {
+	display: none;
 }
 
 .bases-kanban-column {
+	box-sizing: border-box;
 	flex: 0 0 18rem;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
 	min-width: 0;
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
 }
 
 .bases-kanban-column-heading {
@@ -20,15 +43,17 @@
 	align-items: baseline;
 	justify-content: space-between;
 	gap: var(--size-4-2);
-	margin-bottom: var(--size-4-2);
 }
 
 .bases-kanban-column-title {
 	margin: 0;
+	flex: 1 1 auto;
+	font-weight: var(--font-medium);
 }
 
 .bases-kanban-column-count {
 	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 	white-space: nowrap;
 }
 
@@ -38,16 +63,38 @@
 	gap: var(--size-2-2);
 	margin: 0;
 	padding: 0;
+	min-height: 2rem;
 	list-style: none;
 }
 
 .bases-kanban-card {
+	list-style: none;
 	padding: var(--size-4-2);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-s);
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	overflow-wrap: anywhere;
+	transition:
+		background-color 120ms ease,
+		border-color 120ms ease,
+		box-shadow 120ms ease;
+}
+
+.bases-kanban-card:hover {
+	border-color: color-mix(
+		in srgb,
+		var(--interactive-accent) 35%,
+		var(--background-modifier-border)
+	);
 }
 
 .bases-kanban-empty {
 	margin: 0;
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background-color: var(--background-primary);
 	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 }
