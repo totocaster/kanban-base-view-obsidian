@@ -1,4 +1,37 @@
-## Note on `rawKanbanView` and runtime API
+# Bases Kanban View
+
+![Bases Kanban View screenshot](.github/assets/bases-kanban-view-screenshot.png)
+
+A minimal kanban layout for Obsidian Bases, built as a take-home exercise.
+
+- Time spent: full 5 hours for the implementation
+- Git history is present in the repo
+- Vault zip used for testing, with sample notes included: [bases-kanban-view-test-vault.zip](https://www.dropbox.com/scl/fi/344ty9yaljin736znkpne/bases-kanban-view-test-vault.zip?rlkey=vr45jhluols8wt74kmeojm3oh&st=zmq4dc5f&dl=0)
+
+## What I built
+
+- A custom `Kanban` Bases view
+- Columns derived from the active Bases grouping (see note 1 below)
+- Cards that render the note title plus the properties already selected in Bases
+- Drag-and-drop column reordering
+- Drag-and-drop card reordering within a column
+- Cross-column card moves when the board is grouped by a writable `note.*` property
+- Persisted column order per grouping
+- Persisted manual card order per grouping (see note 2 below)
+- A small view option to hide empty properties on cards
+
+## Philosophy
+
+- Reuse the existing Sort, Group, Filter, and Properties controls instead of introducing separate kanban settings
+- Keep the styling minimal so the view feels like part of Bases rather than a themed plugin
+- Prefer pragmatic UX decisions over ornamentation or broad customization
+- Keep interactions fast and predictable (fast updates, no jumping DOM, etc.)
+
+---
+
+## Notes
+
+### 1. Note on `rawKanbanView` and runtime API
 
 I wanted column reordering to respect the built-in Bases `groupBy` UI instead of adding a second grouping selector in plugin settings. Another selector would create a second source of truth for the same concept, which felt confusing and easy to desync from the active Base view.
 
@@ -10,7 +43,7 @@ Initial implementation landed in commit `844be83`.
 
 I might be missing something though. Would like to discuss.
 
-## Note on ordering behavior
+### 2. Note on ordering behavior
 
 Card ordering has two "modes" (not a user facing term), automatic and manual.
 
@@ -19,3 +52,23 @@ In automatic mode, the board simply follows the active Bases sort. If the user c
 In manual mode, the user has started rearranging cards directly. At that point, the board behaves like a fixed snapshot of the current grouped board rather than continuing to follow the live Bases sort for card order.
 
 Manual mode is reset as soon as the user changes the Bases sort again.
+
+---
+
+## Given more time
+
+- Formula support for properties (frankly, I forget until very last moment)
+- Better keyboard navigation, including moving cards and focus mode (like Things for Mac)
+- Richer context menus for moving cards, opening notes, and similar actions
+- Better handling for date-typed properties, including daily note awareness and interaction
+- Smarter property type detection and cleaner formatting, ideally configurable from the view
+- Proper mobile validation; I have not tested it thoroughly yet, although `this.app.emulateMobile(true);` suggests the basic layout should be workable
+
+---
+
+## On Usage of AI Agents
+
+- Most (90%+) of the code in this repo was written with OpenAI Codex 5.4 in the Codex app
+- This has been my normal way of programming since early 2025: I use the model for implementation, but I do the thinking, puzzle-solving, review, and editing as my responsibility
+- I see my value in choosing the approach, shaping the solution, reviewing the output, and rewriting parts that do not hold up
+- I lean heavily on git in that workflow, and I do not let agents commit without my review or an explicit instruction from me
