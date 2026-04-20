@@ -68,7 +68,22 @@ describe("createKanbanViewRegistration", () => {
 				name: KANBAN_VIEW_NAME,
 				icon: KANBAN_VIEW_ICON,
 				factory: expect.any(Function),
+				options: expect.any(Function),
 			}),
 		);
+	});
+
+	it("registers a view toggle to control empty property visibility", () => {
+		const registration = createKanbanViewRegistration();
+		const options = registration.options?.({} as never);
+
+		expect(options).toEqual([
+			expect.objectContaining({
+				type: "toggle",
+				displayName: "Show empty properties",
+				key: "showEmptyProperties",
+				default: true,
+			}),
+		]);
 	});
 });

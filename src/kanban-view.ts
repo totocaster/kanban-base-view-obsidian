@@ -17,6 +17,7 @@ export const KANBAN_VIEW_TYPE = "kanban";
 export const KANBAN_VIEW_NAME = "Kanban";
 export const KANBAN_VIEW_ICON = "lucide-columns-3";
 export const EMPTY_GROUP_TITLE = "Ungrouped";
+const SHOW_EMPTY_PROPERTIES_KEY = "showEmptyProperties";
 
 type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
 
@@ -40,6 +41,14 @@ export function createKanbanViewRegistration(): BasesViewRegistration {
 		icon: KANBAN_VIEW_ICON,
 		factory: (controller, containerEl) =>
 			new BasesKanbanScaffoldView(controller, containerEl),
+		options: () => [
+			{
+				type: "toggle",
+				displayName: "Show empty properties",
+				key: SHOW_EMPTY_PROPERTIES_KEY,
+				default: true,
+			},
+		],
 	};
 }
 
@@ -123,6 +132,7 @@ class BasesKanbanScaffoldView extends BasesView {
 			this.config,
 			entry,
 			entry.file.basename,
+			this.shouldShowEmptyProperties(),
 		);
 		if (propertyItems.length === 0) {
 			return;
@@ -181,5 +191,10 @@ class BasesKanbanScaffoldView extends BasesView {
 		if (toneClass) {
 			iconEl.addClass(toneClass);
 		}
+	}
+
+	private shouldShowEmptyProperties(): boolean {
+		const value = this.config.get(SHOW_EMPTY_PROPERTIES_KEY);
+		return typeof value === "boolean" ? value : true;
 	}
 }

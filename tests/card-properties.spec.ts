@@ -101,6 +101,24 @@ describe("getCardPropertyItems", () => {
 		expect(items).toHaveLength(1);
 		expect(items[0]?.kind).toBe("empty");
 	});
+
+	it("can omit empty properties when the view config disables them", () => {
+		const config = {
+			getDisplayName: (propertyId: string) =>
+				propertyId === "note.owner" ? "Owner" : "Due",
+			getOrder: () => ["note.owner", "note.due"],
+		};
+		const entry = {
+			getValue: (propertyId: string) =>
+				propertyId === "note.owner" ? createValue("Toto") : new NullValue(),
+		};
+
+		const items = getCardPropertyItems(config, entry, "Task alpha", false);
+
+		expect(items).toHaveLength(1);
+		expect(items[0]?.propertyId).toBe("note.owner");
+		expect(items[0]?.kind).toBe("value");
+	});
 });
 
 describe("getPropertyLabel", () => {

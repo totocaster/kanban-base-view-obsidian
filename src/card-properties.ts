@@ -29,6 +29,7 @@ export function getCardPropertyItems(
 	config: CardPropertyConfig,
 	entry: Pick<BasesEntry, "getValue">,
 	titleText: string,
+	showEmptyProperties = true,
 ): CardPropertyItem[] {
 	const items: CardPropertyItem[] = [];
 
@@ -39,13 +40,18 @@ export function getCardPropertyItems(
 			continue;
 		}
 
+		const hasValue = hasPresentValue(value);
+		if (!hasValue && !showEmptyProperties) {
+			continue;
+		}
+
 		const baseItem = createCardPropertyBaseItem(
 			config,
 			propertyId,
 			parsedProperty,
 			value,
 		);
-		if (hasPresentValue(value)) {
+		if (hasValue) {
 			items.push({
 				...baseItem,
 				kind: "value",
