@@ -9,6 +9,7 @@ A minimal kanban layout for Obsidian Bases.
 - A custom `Kanban` Bases view
 - Columns derived from the active Bases grouping (see note 1 below)
 - Cards that render the note title plus the properties already selected in Bases
+- Optional small or large plain-text note previews below card properties
 - Drag-and-drop column reordering
 - Drag-and-drop card reordering within a column
 - Cross-column card moves when the board is grouped by a writable `note.*` property
@@ -17,7 +18,7 @@ A minimal kanban layout for Obsidian Bases.
 - Animated keyboard card moves that respect reduced-motion preferences
 - Persisted column order per grouping
 - Persisted manual card order per grouping (see note 2 below)
-- A small view option to hide empty properties on cards
+- View options to hide empty card properties and choose the card preview size
 
 ## Keyboard usage
 
@@ -37,6 +38,10 @@ Card movement shortcuts use Obsidian's modifier key: `⌘` on macOS / `Ctrl` on 
 - `⌥+⌘+←` / `Alt+Ctrl+←` and `⌥+⌘+→` / `Alt+Ctrl+→` behave the same as the non-option column moves.
 
 Keyboard card movement is available when the board has an active Bases grouping. Cross-column keyboard moves require the grouping to be a writable `note.*` property because the plugin must update note frontmatter to move the card between groups.
+
+## Card previews
+
+Card previews can be set to `None`, `Small`, or `Large` from the view options. Preview text is derived from the note body, skips frontmatter and common Markdown noise, and is truncated to keep cards compact.
 
 ## Design goals
 
