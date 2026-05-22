@@ -5,6 +5,7 @@ import {
 	KANBAN_VIEW_ICON,
 	KANBAN_VIEW_NAME,
 	KANBAN_VIEW_TYPE,
+	createGroupedNoteFrontmatterProcessor,
 	createKanbanViewRegistration,
 	formatNoteCount,
 	getCardMoveAnimationTransforms,
@@ -201,6 +202,61 @@ describe("applyGroupingValueToFrontmatter", () => {
 
 		expect(frontmatter).toEqual({
 			status: "In progress",
+		});
+	});
+});
+
+describe("createGroupedNoteFrontmatterProcessor", () => {
+	it("returns null when the grouping is not a writable note property", () => {
+		expect(
+			createGroupedNoteFrontmatterProcessor("formula.statusBucket", "Done"),
+		).toBeNull();
+		expect(createGroupedNoteFrontmatterProcessor("file.ext", "md")).toBeNull();
+		expect(createGroupedNoteFrontmatterProcessor(null, "Done")).toBeNull();
+	});
+
+	it("prefills the grouped note property for a concrete column", () => {
+		const frontmatter: Record<string, unknown> = {};
+		const processor = createGroupedNoteFrontmatterProcessor(
+			"note.status",
+			"In progress",
+		);
+
+		processor?.(frontmatter);
+
+		expect(frontmatter).toEqual({
+			status: "In progress",
+		});
+	});
+
+	it("writes an empty string for the empty-value column", () => {
+		const frontmatter: Record<string, unknown> = {};
+		const processor = createGroupedNoteFrontmatterProcessor(
+			"note.status",
+			"__kanban_empty__",
+		);
+
+		processor?.(frontmatter);
+
+		expect(frontmatter).toEqual({
+			status: "",
+		});
+	});
+
+	it("keeps the grouped note property absent for the ungrouped column", () => {
+		const frontmatter: Record<string, unknown> = {
+			keep: true,
+			status: "Done",
+		};
+		const processor = createGroupedNoteFrontmatterProcessor(
+			"note.status",
+			"__kanban_null__",
+		);
+
+		processor?.(frontmatter);
+
+		expect(frontmatter).toEqual({
+			keep: true,
 		});
 	});
 });

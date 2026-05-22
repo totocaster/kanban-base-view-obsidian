@@ -70,6 +70,9 @@ type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
 type MenuItemWithSubmenu = MenuItem & {
 	setSubmenu?: () => Menu;
 };
+type GroupedNoteFrontmatterProcessor = (
+	frontmatter: Record<string, unknown>,
+) => void;
 type CardAnimationRect = Pick<DOMRectReadOnly, "left" | "top">;
 type CardPreviewCacheEntry = {
 	mtime: number;
@@ -115,6 +118,20 @@ export function applyGroupingValueToFrontmatter(
 
 	frontmatter[propertyName] =
 		columnId === KANBAN_EMPTY_COLUMN_ID ? "" : columnId;
+}
+
+export function createGroupedNoteFrontmatterProcessor(
+	groupingKey: string | null,
+	columnId: string,
+): GroupedNoteFrontmatterProcessor | null {
+	const propertyName = getWritableGroupingPropertyName(groupingKey);
+	if (propertyName === null) {
+		return null;
+	}
+
+	return (frontmatter) => {
+		applyGroupingValueToFrontmatter(frontmatter, propertyName, columnId);
+	};
 }
 
 export function getGroupTitle(
@@ -290,7 +307,13 @@ class BasesKanbanScaffoldView extends BasesView {
 		const hasActiveGrouping = getCurrentGroupingKey(this) !== null;
 		const canReorderColumns = hasActiveGrouping;
 		const canReorderCards = hasActiveGrouping;
-		const columnEl = boardEl.createEl("section", { cls: "bases-kanban-column" });
+		const columnStackEl = boardEl.createDiv({
+			cls: "bases-kanban-column-stack",
+		});
+		columnStackEl.setAttribute(COLUMN_ID_ATTR, columnId);
+		const columnEl = columnStackEl.createEl("section", {
+			cls: "bases-kanban-column",
+		});
 		columnEl.setAttribute(COLUMN_ID_ATTR, columnId);
 		const headingEl = columnEl.createEl("header", {
 			cls: "bases-kanban-column-heading",
@@ -300,7 +323,7 @@ class BasesKanbanScaffoldView extends BasesView {
 			headingEl.tabIndex = 0;
 			headingEl.draggable = true;
 			headingEl.addEventListener("dragstart", (event) => {
-				this.handleColumnDragStart(event, columnEl);
+				this.handleColumnDragStart(event, columnStackEl);
 			});
 			headingEl.addEventListener("dragend", () => {
 				this.handleColumnDragEnd();
@@ -308,10 +331,10 @@ class BasesKanbanScaffoldView extends BasesView {
 			headingEl.addEventListener("contextmenu", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				this.openColumnMenu(event, columnEl);
+				this.openColumnMenu(event, columnStackEl);
 			});
 			headingEl.addEventListener("keydown", (event) => {
-				this.handleColumnHeaderKeyDown(event, headingEl, columnEl);
+				this.handleColumnHeaderKeyDown(event, headingEl, columnStackEl);
 			});
 		}
 
@@ -340,13 +363,66 @@ class BasesKanbanScaffoldView extends BasesView {
 				cls: "bases-kanban-empty",
 				text: "No notes in this group.",
 			});
+		} else {
+			for (const entry of getOrderedEntriesForGroup(this, group)) {
+				this.renderCard(cardsEl, group, entry, canReorderCards);
+				if (canReorderCards) {
+					this.renderCardDropSlot(cardsEl);
+				}
+			}
+		}
+
+		this.renderAddNoteButton(columnStackEl, columnTitle, columnId);
+	}
+
+	private renderAddNoteButton(
+		parentEl: HTMLElement,
+		columnTitle: string,
+		columnId: string,
+	): void {
+		const frontmatterProcessor = createGroupedNoteFrontmatterProcessor(
+			getCurrentGroupingKey(this),
+			columnId,
+		);
+		if (frontmatterProcessor === null) {
 			return;
 		}
 
-		for (const entry of getOrderedEntriesForGroup(this, group)) {
-			this.renderCard(cardsEl, group, entry, canReorderCards);
-			if (canReorderCards) {
-				this.renderCardDropSlot(cardsEl);
+		const buttonEl = parentEl.createEl("button", {
+			cls: "bases-kanban-add-note",
+			attr: {
+				type: "button",
+				"aria-label": `Add to ${columnTitle}`,
+			},
+		});
+		const iconEl = buttonEl.createSpan({
+			cls: "bases-kanban-add-note-icon",
+			attr: { "aria-hidden": "true" },
+		});
+		setIcon(iconEl, "plus");
+		buttonEl.createSpan({
+			cls: "bases-kanban-add-note-label",
+			text: "Add",
+		});
+		buttonEl.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.handleAddNoteClick(buttonEl, frontmatterProcessor);
+		});
+	}
+
+	private async handleAddNoteClick(
+		buttonEl: HTMLButtonElement,
+		frontmatterProcessor: GroupedNoteFrontmatterProcessor,
+	): Promise<void> {
+		buttonEl.disabled = true;
+		try {
+			await this.createFileForView(undefined, frontmatterProcessor);
+		} catch {
+			new Notice("Couldn't create that note.");
+		} finally {
+			if (buttonEl.isConnected) {
+				buttonEl.disabled = false;
 			}
 		}
 	}
@@ -845,15 +921,22 @@ class BasesKanbanScaffoldView extends BasesView {
 			return [];
 		}
 
-		return Array.from(boardEl.querySelectorAll(":scope > .bases-kanban-column"))
+		return Array.from(
+			boardEl.querySelectorAll(":scope > .bases-kanban-column-stack"),
+		)
 			.filter(
-				(columnNode): columnNode is HTMLElement =>
-					columnNode instanceof HTMLElement,
+				(columnStackNode): columnStackNode is HTMLElement =>
+					columnStackNode instanceof HTMLElement,
 			)
-			.map((columnEl) => ({
-				columnId: columnEl.getAttribute(COLUMN_ID_ATTR) ?? "",
-				cardIds: this.getRenderedCardOrder(columnEl),
-			}))
+			.map((columnStackEl) => {
+				const columnEl = columnStackEl.querySelector<HTMLElement>(
+					":scope > .bases-kanban-column",
+				);
+				return {
+					columnId: columnStackEl.getAttribute(COLUMN_ID_ATTR) ?? "",
+					cardIds: columnEl ? this.getRenderedCardOrder(columnEl) : [],
+				};
+			})
 			.filter((column) => column.columnId.length > 0);
 	}
 
@@ -1180,15 +1263,15 @@ class BasesKanbanScaffoldView extends BasesView {
 	// Column menu building and actions
 	private openColumnMenu(
 		event: MouseEvent,
-		columnEl: HTMLElement,
+		columnStackEl: HTMLElement,
 	): void {
-		this.buildColumnMenu(columnEl)?.showAtMouseEvent(event);
+		this.buildColumnMenu(columnStackEl)?.showAtMouseEvent(event);
 	}
 
 	private handleColumnHeaderKeyDown(
 		event: KeyboardEvent,
 		headingEl: HTMLElement,
-		columnEl: HTMLElement,
+		columnStackEl: HTMLElement,
 	): void {
 		if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
 			return;
@@ -1197,20 +1280,20 @@ class BasesKanbanScaffoldView extends BasesView {
 		event.preventDefault();
 		event.stopPropagation();
 		const rect = headingEl.getBoundingClientRect();
-		this.buildColumnMenu(columnEl)?.showAtPosition({
+		this.buildColumnMenu(columnStackEl)?.showAtPosition({
 			x: rect.left,
 			y: rect.bottom,
 			width: rect.width,
 		});
 	}
 
-	private buildColumnMenu(columnEl: HTMLElement): Menu | null {
+	private buildColumnMenu(columnStackEl: HTMLElement): Menu | null {
 		const boardEl = this.boardEl;
 		if (!(boardEl instanceof HTMLElement)) {
 			return null;
 		}
 
-		const columnId = columnEl.getAttribute(COLUMN_ID_ATTR);
+		const columnId = columnStackEl.getAttribute(COLUMN_ID_ATTR);
 		if (!columnId) {
 			return null;
 		}
@@ -1396,11 +1479,11 @@ class BasesKanbanScaffoldView extends BasesView {
 	// Column drag and drop
 	private handleColumnDragStart(
 		event: DragEvent,
-		columnEl: HTMLElement,
+		columnStackEl: HTMLElement,
 	): void {
 		event.stopPropagation();
-		this.draggedColumnEl = columnEl;
-		columnEl.classList.add(COLUMN_DRAGGING_CLASS);
+		this.draggedColumnEl = columnStackEl;
+		columnStackEl.classList.add(COLUMN_DRAGGING_CLASS);
 
 		if (!event.dataTransfer) {
 			return;
@@ -1409,10 +1492,10 @@ class BasesKanbanScaffoldView extends BasesView {
 		event.dataTransfer.effectAllowed = "move";
 		event.dataTransfer.setData(
 			"text/plain",
-			columnEl.getAttribute(COLUMN_ID_ATTR) ?? "",
+			columnStackEl.getAttribute(COLUMN_ID_ATTR) ?? "",
 		);
 		const previewEl = this.createDragPreview(
-			columnEl,
+			columnStackEl,
 			"bases-kanban-column--drag-preview",
 		);
 		event.dataTransfer.setDragImage(previewEl, 24, 24);
@@ -1473,12 +1556,14 @@ class BasesKanbanScaffoldView extends BasesView {
 	}
 
 	private getRenderedColumnOrder(boardEl: HTMLElement): string[] {
-		return Array.from(boardEl.querySelectorAll(":scope > .bases-kanban-column"))
+		return Array.from(
+			boardEl.querySelectorAll(":scope > .bases-kanban-column-stack"),
+		)
 			.filter(
-				(columnNode): columnNode is HTMLElement =>
-					columnNode instanceof HTMLElement,
+				(columnStackNode): columnStackNode is HTMLElement =>
+					columnStackNode instanceof HTMLElement,
 			)
-			.map((columnEl) => columnEl.getAttribute(COLUMN_ID_ATTR))
+			.map((columnStackEl) => columnStackEl.getAttribute(COLUMN_ID_ATTR))
 			.filter((columnId): columnId is string => columnId !== null);
 	}
 
