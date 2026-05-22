@@ -137,6 +137,14 @@ describe("getCurrentGroupingKey", () => {
 		expect(getCurrentGroupingKey(store.view)).toBe("note.status");
 	});
 
+	it("keeps formula grouping property ids intact", () => {
+		const store = createKanbanViewStore({
+			groupByProperty: "formula.statusBucket",
+		});
+
+		expect(getCurrentGroupingKey(store.view)).toBe("formula.statusBucket");
+	});
+
 	it("returns null when no valid groupBy property exists", () => {
 		expect(getCurrentGroupingKey(createKanbanViewStore({
 			groupByProperty: null,

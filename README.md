@@ -9,6 +9,7 @@ A minimal kanban layout for Obsidian Bases.
 - A custom `Kanban` Bases view
 - Columns derived from the active Bases grouping (see note 1 below)
 - Cards that render the note title plus the properties already selected in Bases
+- Formula properties selected in Bases render as card metadata with a formula icon
 - Optional small or large plain-text note previews below card properties
 - Drag-and-drop column reordering
 - Drag-and-drop card reordering within a column
@@ -37,11 +38,15 @@ Card movement shortcuts use Obsidian's modifier key: `⌘` on macOS / `Ctrl` on 
 - `⌥+⌘+↓` / `Alt+Ctrl+↓` sends the focused card to the bottom of its column.
 - `⌥+⌘+←` / `Alt+Ctrl+←` and `⌥+⌘+→` / `Alt+Ctrl+→` behave the same as the non-option column moves.
 
-Keyboard card movement is available when the board has an active Bases grouping. Cross-column keyboard moves require the grouping to be a writable `note.*` property because the plugin must update note frontmatter to move the card between groups.
+Keyboard card movement is available when the board has an active Bases grouping. Cross-column keyboard moves require the grouping to be a writable `note.*` property because the plugin must update note frontmatter to move the card between groups. Boards grouped by `formula.*` properties can still use column ordering and same-column card ordering, but formula columns are computed and cannot be used as writable drop targets.
 
 ## Card previews
 
 Card previews can be set to `None`, `Small`, or `Large` from the view options. Preview text is derived from the note body, skips frontmatter and common Markdown noise, and is truncated to keep cards compact.
+
+## Formula properties
+
+Formula properties selected in the Bases Properties menu are shown in each card's metadata list. The view uses Obsidian's evaluated Bases values, so formula output renders through the same `Value.renderTo` path as note and file properties.
 
 ## Design goals
 
@@ -76,7 +81,6 @@ Manual mode is reset as soon as the user changes the Bases sort again.
 
 ## Future work
 
-- Formula support for properties
 - Better handling for date-typed properties, including daily note awareness and interaction
 - Smarter property type detection and cleaner formatting, ideally configurable from the view
 - Proper mobile validation; I have not tested it thoroughly yet, although `this.app.emulateMobile(true);` suggests the basic layout should be workable

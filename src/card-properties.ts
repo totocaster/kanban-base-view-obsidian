@@ -100,9 +100,20 @@ export function getPropertyLabel(
 export function getMetadataIcon(
 	propertyId: BasesPropertyId,
 	value: CardPropertyValue,
-	propertyName = parsePropertyId(propertyId).name,
+	propertyName?: string,
+	propertyType?: string,
 ): { icon: string; toneClass?: string } | null {
-	const propertyKey = propertyName.toLowerCase();
+	const parsedProperty =
+		propertyName === undefined || propertyType === undefined
+			? parsePropertyId(propertyId)
+			: null;
+	const normalizedPropertyName = propertyName ?? parsedProperty?.name ?? propertyId;
+	const normalizedPropertyType = propertyType ?? parsedProperty?.type ?? "";
+	if (normalizedPropertyType === "formula") {
+		return { icon: "square-function" };
+	}
+
+	const propertyKey = normalizedPropertyName.toLowerCase();
 	if (
 		matchesPropertyName(propertyKey, [
 			"due",
@@ -172,7 +183,12 @@ function createCardPropertyBaseItem(
 	parsedProperty: ParsedProperty,
 	value: CardPropertyValue,
 ): CardPropertyBaseItem {
-	const metadataIcon = getMetadataIcon(propertyId, value, parsedProperty.name);
+	const metadataIcon = getMetadataIcon(
+		propertyId,
+		value,
+		parsedProperty.name,
+		parsedProperty.type,
+	);
 	return {
 		propertyId,
 		label: getPropertyLabel(config, propertyId, parsedProperty.name),

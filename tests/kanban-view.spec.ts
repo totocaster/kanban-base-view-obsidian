@@ -149,6 +149,10 @@ describe("getWritableGroupingPropertyName", () => {
 	it("returns null for non-note groupings", () => {
 		expect(getWritableGroupingPropertyName("file.ext")).toBeNull();
 	});
+
+	it("returns null for formula groupings because they are computed", () => {
+		expect(getWritableGroupingPropertyName("formula.statusBucket")).toBeNull();
+	});
 });
 
 describe("applyGroupingValueToFrontmatter", () => {

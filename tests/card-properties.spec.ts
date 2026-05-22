@@ -119,6 +119,42 @@ describe("getCardPropertyItems", () => {
 		expect(items[0]?.propertyId).toBe("note.owner");
 		expect(items[0]?.kind).toBe("value");
 	});
+
+	it("renders selected formula properties with a formula icon", () => {
+		const config = {
+			getDisplayName: (propertyId: string) =>
+				propertyId === "formula.ppu" ? "Price per unit" : "",
+			getOrder: () => ["formula.ppu"],
+		};
+		const entry = {
+			getValue: () => createValue("12.50"),
+		};
+
+		const items = getCardPropertyItems(config, entry, "Task alpha");
+
+		expect(items).toEqual([
+			expect.objectContaining({
+				propertyId: "formula.ppu",
+				label: "Price per unit",
+				icon: "square-function",
+				kind: "value",
+			}),
+		]);
+	});
+
+	it("can omit empty formula properties when empty properties are hidden", () => {
+		const config = {
+			getDisplayName: () => "Computed status",
+			getOrder: () => ["formula.computedStatus"],
+		};
+		const entry = {
+			getValue: () => new NullValue(),
+		};
+
+		const items = getCardPropertyItems(config, entry, "Task alpha", false);
+
+		expect(items).toEqual([]);
+	});
 });
 
 describe("getPropertyLabel", () => {
@@ -148,6 +184,12 @@ describe("getMetadataIcon", () => {
 		});
 		expect(getMetadataIcon("note.tags", createValue("#kanban"))).toEqual({
 			icon: "tag",
+		});
+	});
+
+	it("uses a formula icon for formula properties", () => {
+		expect(getMetadataIcon("formula.status", createValue("Done"))).toEqual({
+			icon: "square-function",
 		});
 	});
 });
