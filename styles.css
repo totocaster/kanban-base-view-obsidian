@@ -232,6 +232,7 @@
 
 .bases-kanban-card-preview {
 	display: -webkit-box;
+	position: relative;
 	margin-top: var(--size-2-2);
 	overflow: hidden;
 	-webkit-box-orient: vertical;
@@ -239,6 +240,47 @@
 	font-size: var(--font-ui-smaller);
 	line-height: var(--line-height-tight);
 	white-space: normal;
+}
+
+.bases-kanban-card-properties + .bases-kanban-card-preview {
+	margin-right: calc(-1 * var(--size-4-2));
+	margin-left: calc(-1 * var(--size-4-2));
+	padding-top: var(--size-2-3);
+	padding-right: var(--size-4-2);
+	padding-left: var(--size-4-2);
+}
+
+.bases-kanban-card-properties + .bases-kanban-card-preview::before,
+.bases-kanban-card-properties + .bases-kanban-card-preview::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	pointer-events: none;
+}
+
+.bases-kanban-card-properties + .bases-kanban-card-preview::before {
+	top: 0;
+	height: 1px;
+	background-color: color-mix(
+		in srgb,
+		var(--background-modifier-border) 64%,
+		transparent
+	);
+}
+
+.bases-kanban-card-properties + .bases-kanban-card-preview::after {
+	top: 1px;
+	height: var(--size-4-2);
+	background: linear-gradient(
+		to bottom,
+		color-mix(in srgb, var(--background-modifier-border) 18%, transparent),
+		transparent
+	);
+}
+
+.theme-dark .bases-kanban-card-properties + .bases-kanban-card-preview::after {
+	display: none;
 }
 
 .bases-kanban-card-preview--small {
