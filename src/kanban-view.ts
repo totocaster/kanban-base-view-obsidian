@@ -202,6 +202,13 @@ export function shouldReleaseMouseFocusSuppression(
 	);
 }
 
+export function shouldPreventCardTitleMouseDownDefault(
+	mouseButton: number,
+	canReorderCards: boolean,
+): boolean {
+	return mouseButton === 0 && !canReorderCards;
+}
+
 class BasesKanbanScaffoldView extends BasesView {
 	readonly type = KANBAN_VIEW_TYPE;
 	private readonly containerEl: HTMLElement;
@@ -392,7 +399,14 @@ class BasesKanbanScaffoldView extends BasesView {
 				return;
 			}
 
-			event.preventDefault();
+			if (
+				shouldPreventCardTitleMouseDownDefault(
+					event.button,
+					canReorderCards,
+				)
+			) {
+				event.preventDefault();
+			}
 			this.focusCardElement(cardEl, { preventScroll: true });
 		});
 		titleEl.onClickEvent((event) => {
@@ -1003,7 +1017,7 @@ class BasesKanbanScaffoldView extends BasesView {
 
 	private handleCardOrderKeyDown(
 		event: KeyboardEvent,
-		titleEl: HTMLElement,
+		targetEl: HTMLElement,
 		group: BasesEntryGroup,
 		entry: BasesEntry,
 	): void {
@@ -1013,7 +1027,7 @@ class BasesKanbanScaffoldView extends BasesView {
 
 		event.preventDefault();
 		event.stopPropagation();
-		const rect = titleEl.getBoundingClientRect();
+		const rect = targetEl.getBoundingClientRect();
 		this.buildCardOrderMenu(group, entry)?.showAtPosition({
 			x: rect.left,
 			y: rect.bottom,

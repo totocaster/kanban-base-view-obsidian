@@ -11,6 +11,7 @@ import {
 	getWritableGroupingPropertyName,
 	getGroupTitle,
 	registerKanbanView,
+	shouldPreventCardTitleMouseDownDefault,
 	shouldReleaseMouseFocusSuppression,
 } from "../src/kanban-view";
 
@@ -138,6 +139,20 @@ describe("shouldReleaseMouseFocusSuppression", () => {
 				"mousemove",
 			),
 		).toBe(true);
+	});
+});
+
+describe("shouldPreventCardTitleMouseDownDefault", () => {
+	it("keeps primary title clicks focused on non-reorderable cards", () => {
+		expect(shouldPreventCardTitleMouseDownDefault(0, false)).toBe(true);
+	});
+
+	it("allows primary title drags to reach reorderable cards", () => {
+		expect(shouldPreventCardTitleMouseDownDefault(0, true)).toBe(false);
+	});
+
+	it("does not intercept secondary title clicks", () => {
+		expect(shouldPreventCardTitleMouseDownDefault(2, false)).toBe(false);
 	});
 });
 
