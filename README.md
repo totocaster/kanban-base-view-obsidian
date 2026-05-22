@@ -1,12 +1,12 @@
-# Bases Kanban View
+# Better Kanban Bases View
 
-![Bases Kanban View screenshot](.github/assets/bases-kanban-view-screenshot.png)
+![Better Kanban Bases View screenshot](.github/assets/bases-kanban-view-screenshot.png)
 
 A minimal kanban layout for Obsidian Bases.
 
 ## Install
 
-Once approved in the Obsidian community directory, install Bases Kanban View from **Settings > Community plugins**.
+Once approved in the Obsidian community directory, install Better Kanban Bases View from **Settings > Community plugins**.
 
 For a manual install, download the release assets and place them in:
 
