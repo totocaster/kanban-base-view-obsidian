@@ -1,7 +1,18 @@
 {
 	"name": "bases-kanban-view",
-	"version": "0.0.1",
+	"version": "0.5.0",
+	"private": true,
+	"license": "MIT",
 	"description": "Adds a kanban layout for Bases.",
+	"author": "Toto Tvalavadze",
+	"homepage": "https://ttvl.co",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/totocaster/kanban-base-view-obsidian.git"
+	},
+	"bugs": {
+		"url": "https://github.com/totocaster/kanban-base-view-obsidian/issues"
+	},
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
@@ -11,15 +22,18 @@
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},
-	"dependencies": {
-		"obsidian": "latest"
-	},
+	"keywords": [
+		"obsidian",
+		"bases",
+		"kanban"
+	],
 	"devDependencies": {
 		"@eslint/js": "^9.30.1",
 		"@types/node": "^20.11.30",
 		"esbuild": "0.25.5",
 		"eslint": "^9.30.1",
 		"globals": "14.0.0",
+		"obsidian": "latest",
 		"typescript": "^5.8.3",
 		"typescript-eslint": "8.35.1",
 		"vitest": "^3.2.4"

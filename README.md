@@ -4,6 +4,23 @@
 
 A minimal kanban layout for Obsidian Bases.
 
+## Install
+
+Once approved in the Obsidian community directory, install Bases Kanban View from **Settings > Community plugins**.
+
+For a manual install, download the release assets and place them in:
+
+```text
+.obsidian/plugins/bases-kanban-view/
+  manifest.json
+  main.js
+  styles.css
+```
+
+## Compatibility
+
+Requires Obsidian 1.10.2 or newer. The plugin uses the Bases view API and is not marked desktop-only.
+
 ## Features
 
 - A custom `Kanban` Bases view
@@ -57,6 +74,47 @@ Formula properties selected in the Bases Properties menu are shown in each card'
 
 ---
 
+## Privacy and safety
+
+- No telemetry or analytics.
+- No network requests.
+- No account, license key, or paid service required.
+- No access to files outside the vault.
+- Uses Obsidian APIs to read notes shown by the active Base, create notes from kanban columns, and update note frontmatter when cards move between writable `note.*` groups.
+
+## Development
+
+Install dependencies and run the local checks:
+
+```bash
+npm install
+npm test
+npm run lint
+npm run build
+```
+
+Start watch mode:
+
+```bash
+npm run dev
+```
+
+For local vault development, symlink this repo into:
+
+```text
+.obsidian/plugins/bases-kanban-view
+```
+
+## Release
+
+The first community release starts at `0.5.0`.
+
+1. Update `manifest.json`, `package.json`, and `package-lock.json` to the release version.
+2. Update `versions.json` only when the required Obsidian version changes.
+3. Run `npm test`, `npm run lint`, and `npm run build`.
+4. Create a GitHub release whose tag exactly matches `manifest.json` version.
+5. Attach `main.js`, `manifest.json`, and `styles.css` to the release.
+
 ## Notes
 
 ### 1. Note on `rawKanbanView` and runtime API
@@ -84,3 +142,7 @@ Manual mode is reset as soon as the user changes the Bases sort again.
 - Better handling for date-typed properties, including daily note awareness and interaction
 - Smarter property type detection and cleaner formatting, ideally configurable from the view
 - Proper mobile validation; I have not tested it thoroughly yet, although `this.app.emulateMobile(true);` suggests the basic layout should be workable
+
+## License
+
+[MIT](./LICENSE)
