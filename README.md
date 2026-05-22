@@ -11,7 +11,7 @@ Once approved in the Obsidian community directory, install Bases Kanban View fro
 For a manual install, download the release assets and place them in:
 
 ```text
-.obsidian/plugins/bases-kanban-view/
+.obsidian/plugins/bases-kanban-view-ttvl/
   manifest.json
   main.js
   styles.css
@@ -102,7 +102,7 @@ npm run dev
 For local vault development, symlink this repo into:
 
 ```text
-.obsidian/plugins/bases-kanban-view
+.obsidian/plugins/bases-kanban-view-ttvl
 ```
 
 ## Release
