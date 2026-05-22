@@ -21,9 +21,15 @@ import {
 	getCardOrderForGroup,
 	getCurrentSortKey,
 	getCurrentGroupingKey,
+	getKeyboardArrowDirection,
+	getKeyboardCardMovePlan,
+	getKeyboardFocusCardId,
 	getGroupColumnId,
 	getOrderedEntriesForGroup,
 	getOrderedGroupsForCurrentGrouping,
+	type KanbanKeyboardCardMovePlan,
+	type KanbanKeyboardDirection,
+	type KanbanRenderedColumnOrder,
 	moveCardBetweenColumns,
 	moveCardToBoundary,
 	moveCardToVisibleIndex,
@@ -46,6 +52,7 @@ const COLUMN_ID_ATTR = "data-column-id";
 const CARD_ID_ATTR = "data-card-id";
 const COLUMN_DRAGGING_CLASS = "bases-kanban-column--dragging";
 const CARD_DRAGGING_CLASS = "bases-kanban-card--dragging";
+const CARD_FOCUSED_CLASS = "bases-kanban-card--focused";
 const COLUMN_DROP_SLOT_ACTIVE_CLASS = "bases-kanban-drop-slot--active";
 const DRAG_PREVIEW_CLASS = "bases-kanban-drag-preview";
 
@@ -128,6 +135,9 @@ class BasesKanbanScaffoldView extends BasesView {
 	private draggedCardEl: HTMLElement | null = null;
 	private draggedCardSourceColumnId: string | null = null;
 	private activeCardSlotEl: HTMLElement | null = null;
+	private focusedCardEl: HTMLElement | null = null;
+	private focusedCardId: string | null = null;
+	private pendingFocusCardId: string | null = null;
 	private lastObservedSortKey: string | null = null;
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
@@ -139,11 +149,18 @@ class BasesKanbanScaffoldView extends BasesView {
 		this.syncCardOrdersWithCurrentSort();
 		this.resetColumnInteractionState();
 		this.resetCardInteractionState();
+		const focusCardId = this.pendingFocusCardId ?? this.focusedCardId;
+		this.focusedCardEl = null;
 		this.containerEl.empty();
 		this.boardEl = null;
 
 		const boardEl = this.containerEl.createDiv({ cls: "bases-kanban-board" });
 		this.boardEl = boardEl;
+		boardEl.tabIndex = 0;
+		boardEl.setAttribute("aria-label", "Kanban board");
+		boardEl.addEventListener("keydown", (event) => {
+			void this.handleBoardKeyDown(event);
+		});
 		boardEl.addEventListener("dragover", (event) => {
 			this.handleBoardDragOver(event, boardEl);
 		});
@@ -159,6 +176,10 @@ class BasesKanbanScaffoldView extends BasesView {
 			this.renderGroup(boardEl, group);
 			this.renderColumnDropSlot(boardEl);
 		}
+		if (focusCardId !== null) {
+			this.focusRenderedCardById(focusCardId);
+		}
+		this.pendingFocusCardId = null;
 	}
 
 	private renderGroup(boardEl: HTMLElement, group: BasesEntryGroup): void {
@@ -239,22 +260,52 @@ class BasesKanbanScaffoldView extends BasesView {
 		const cardEl = cardsEl.createEl("li", {
 			cls: "bases-kanban-card",
 		});
-		cardEl.setAttribute(CARD_ID_ATTR, getCardId(entry));
+		const cardId = getCardId(entry);
+		cardEl.setAttribute(CARD_ID_ATTR, cardId);
+		cardEl.tabIndex = 0;
+		cardEl.addEventListener("mouseover", () => {
+			this.focusCardElement(cardEl, { preventScroll: true });
+		});
+		cardEl.addEventListener("mousemove", () => {
+			this.focusCardElement(cardEl, { preventScroll: true });
+		});
+		cardEl.addEventListener("focusin", () => {
+			this.setFocusedCard(cardEl);
+		});
+		cardEl.addEventListener("focusout", () => {
+			if (this.focusedCardEl === cardEl) {
+				this.setFocusedCard(null);
+			}
+		});
+		cardEl.addEventListener("keydown", (event) => {
+			if (event.key !== "Enter" && event.key !== " ") {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			this.openEntry(event, entry);
+		});
 		const titleEl = cardEl.createEl("button", {
 			cls: "bases-kanban-card-link",
 			attr: {
 				type: "button",
 			},
 		});
+		titleEl.tabIndex = -1;
 		titleEl.setText(entry.file.basename);
+		titleEl.addEventListener("mousedown", (event) => {
+			if (event.button !== 0) {
+				return;
+			}
+
+			event.preventDefault();
+			this.focusCardElement(cardEl, { preventScroll: true });
+		});
 		titleEl.onClickEvent((event) => {
 			event.preventDefault();
 			event.stopPropagation();
-			void this.app.workspace.openLinkText(
-				entry.file.path,
-				"",
-				Keymap.isModEvent(event),
-			);
+			this.openEntry(event, entry);
 		});
 		if (canReorderCards) {
 			cardEl.draggable = true;
@@ -269,13 +320,21 @@ class BasesKanbanScaffoldView extends BasesView {
 				event.stopPropagation();
 				this.openCardOrderMenu(event, group, entry);
 			});
-			titleEl.addEventListener("keydown", (event) => {
-				this.handleCardOrderKeyDown(event, titleEl, group, entry);
+			cardEl.addEventListener("keydown", (event) => {
+				this.handleCardOrderKeyDown(event, cardEl, group, entry);
 			});
 		}
 		titleEl.draggable = false;
 
 		this.renderCardProperties(cardEl, entry);
+	}
+
+	private openEntry(event: MouseEvent | KeyboardEvent, entry: BasesEntry): void {
+		void this.app.workspace.openLinkText(
+			entry.file.path,
+			"",
+			Keymap.isModEvent(event),
+		);
 	}
 
 	private renderCardProperties(cardEl: HTMLElement, entry: BasesEntry): void {
@@ -359,6 +418,230 @@ class BasesKanbanScaffoldView extends BasesView {
 		}
 
 		this.lastObservedSortKey = currentSortKey;
+	}
+
+	// Card keyboard focus and moves
+	private async handleBoardKeyDown(event: KeyboardEvent): Promise<void> {
+		const direction = getKeyboardArrowDirection(event.key);
+		if (direction === null) {
+			return;
+		}
+
+		if (this.isCardMoveKeyboardEvent(event)) {
+			await this.handleKeyboardCardMove(event, direction);
+			return;
+		}
+
+		if (this.hasKeyboardFocusModifier(event)) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		const targetCardId = getKeyboardFocusCardId(
+			this.getRenderedKeyboardBoard(),
+			this.getKeyboardEventCardId(event),
+			direction,
+		);
+		if (targetCardId !== null) {
+			this.focusRenderedCardById(targetCardId);
+		}
+	}
+
+	private async handleKeyboardCardMove(
+		event: KeyboardEvent,
+		direction: KanbanKeyboardDirection,
+	): Promise<void> {
+		if (getCurrentGroupingKey(this) === null) {
+			return;
+		}
+
+		const cardId = this.getKeyboardEventCardId(event);
+		if (cardId === null) {
+			return;
+		}
+
+		const boardOrder = this.getRenderedKeyboardBoard();
+		const movePlan = getKeyboardCardMovePlan(boardOrder, cardId, direction, {
+			sendToBoundary: event.altKey,
+		});
+		if (movePlan.type === "none") {
+			return;
+		}
+		if (
+			movePlan.type === "cross-column" &&
+			this.getWritableGroupingPropertyNameForMoves() === null
+		) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		this.pendingFocusCardId = cardId;
+		this.focusedCardId = cardId;
+
+		if (movePlan.type === "same-column") {
+			this.applyKeyboardSameColumnCardMove(
+				movePlan,
+				boardOrder,
+				direction,
+				event.altKey,
+			);
+			return;
+		}
+
+		await this.applyKeyboardCrossColumnCardMove(movePlan, boardOrder);
+	}
+
+	private applyKeyboardSameColumnCardMove(
+		movePlan: Extract<KanbanKeyboardCardMovePlan, { type: "same-column" }>,
+		boardOrder: KanbanRenderedColumnOrder[],
+		direction: KanbanKeyboardDirection,
+		sendToBoundary: boolean,
+	): void {
+		const group = this.getRenderedGroup(movePlan.columnId);
+		const visibleCardOrder = boardOrder[movePlan.columnIndex]?.cardIds ?? [];
+		if (!group || visibleCardOrder.length === 0) {
+			return;
+		}
+
+		const cardOrder = getCardOrderForGroup(this, group);
+		const nextCardOrder =
+			sendToBoundary && (direction === "up" || direction === "down")
+				? moveCardToBoundary(
+						cardOrder,
+						movePlan.cardId,
+						direction === "up" ? "start" : "end",
+					)
+				: moveCardToVisibleIndex(
+						cardOrder,
+						visibleCardOrder,
+						movePlan.cardId,
+						movePlan.targetVisibleIndex,
+					);
+
+		writeCurrentCardOrder(
+			this,
+			this.data.groupedData,
+			movePlan.columnId,
+			nextCardOrder,
+		);
+		this.focusRenderedCardById(movePlan.cardId);
+	}
+
+	private async applyKeyboardCrossColumnCardMove(
+		movePlan: Extract<KanbanKeyboardCardMovePlan, { type: "cross-column" }>,
+		boardOrder: KanbanRenderedColumnOrder[],
+	): Promise<void> {
+		const sourceGroup = this.getRenderedGroup(movePlan.sourceColumnId);
+		const targetGroup = this.getRenderedGroup(movePlan.targetColumnId);
+		const targetVisibleCardOrder =
+			boardOrder[movePlan.targetColumnIndex]?.cardIds ?? [];
+		if (!sourceGroup || !targetGroup) {
+			return;
+		}
+
+		const sourceCardOrder = getCardOrderForGroup(this, sourceGroup);
+		if (!sourceCardOrder.includes(movePlan.cardId)) {
+			return;
+		}
+
+		await this.handleCrossColumnCardDrop({
+			cardId: movePlan.cardId,
+			sourceColumnId: movePlan.sourceColumnId,
+			targetColumnId: movePlan.targetColumnId,
+			groupedData: [...this.data.groupedData],
+			sourceCardOrder,
+			targetCardOrder: getCardOrderForGroup(this, targetGroup),
+			targetVisibleCardOrder,
+			targetSlotIndex: movePlan.targetVisibleIndex,
+		});
+		this.focusRenderedCardById(movePlan.cardId);
+	}
+
+	private isCardMoveKeyboardEvent(event: KeyboardEvent): boolean {
+		return !event.shiftKey && Boolean(Keymap.isModEvent(event));
+	}
+
+	private hasKeyboardFocusModifier(event: KeyboardEvent): boolean {
+		return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+	}
+
+	private getKeyboardEventCardId(event: KeyboardEvent): string | null {
+		const target = event.target;
+		if (target instanceof Element) {
+			const cardId = target
+				.closest<HTMLElement>(".bases-kanban-card")
+				?.getAttribute(CARD_ID_ATTR);
+			if (cardId) {
+				return cardId;
+			}
+		}
+
+		return this.focusedCardId;
+	}
+
+	private getRenderedKeyboardBoard(): KanbanRenderedColumnOrder[] {
+		const boardEl = this.boardEl;
+		if (!(boardEl instanceof HTMLElement)) {
+			return [];
+		}
+
+		return Array.from(boardEl.querySelectorAll(":scope > .bases-kanban-column"))
+			.filter(
+				(columnNode): columnNode is HTMLElement =>
+					columnNode instanceof HTMLElement,
+			)
+			.map((columnEl) => ({
+				columnId: columnEl.getAttribute(COLUMN_ID_ATTR) ?? "",
+				cardIds: this.getRenderedCardOrder(columnEl),
+			}))
+			.filter((column) => column.columnId.length > 0);
+	}
+
+	private focusRenderedCardById(cardId: string): boolean {
+		const boardEl = this.boardEl;
+		if (!(boardEl instanceof HTMLElement)) {
+			return false;
+		}
+
+		const cardEl = Array.from(
+			boardEl.querySelectorAll(".bases-kanban-card"),
+		).find(
+			(candidate): candidate is HTMLElement =>
+				candidate instanceof HTMLElement &&
+				candidate.getAttribute(CARD_ID_ATTR) === cardId,
+		);
+		if (!cardEl) {
+			return false;
+		}
+
+		this.focusCardElement(cardEl);
+		return true;
+	}
+
+	private focusCardElement(
+		cardEl: HTMLElement,
+		options: { preventScroll?: boolean } = {},
+	): void {
+		if (cardEl.ownerDocument.activeElement !== cardEl) {
+			cardEl.focus({ preventScroll: true });
+		}
+		this.setFocusedCard(cardEl);
+		if (!options.preventScroll) {
+			cardEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+		}
+	}
+
+	private setFocusedCard(cardEl: HTMLElement | null): void {
+		if (this.focusedCardEl === cardEl) {
+			return;
+		}
+
+		this.focusedCardEl?.classList.remove(CARD_FOCUSED_CLASS);
+		this.focusedCardEl = cardEl;
+		this.focusedCardId = cardEl?.getAttribute(CARD_ID_ATTR) ?? null;
+		this.focusedCardEl?.classList.add(CARD_FOCUSED_CLASS);
 	}
 
 	// Card ordering menu actions

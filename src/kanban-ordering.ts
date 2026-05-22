@@ -16,6 +16,34 @@ export type KanbanState = {
 	cardOrders: Record<string, Record<string, string[]>>;
 };
 
+export type KanbanKeyboardDirection = "left" | "right" | "up" | "down";
+
+export type KanbanRenderedColumnOrder = {
+	columnId: string;
+	cardIds: string[];
+};
+
+export type KanbanKeyboardCardMovePlan =
+	| {
+			type: "same-column";
+			cardId: string;
+			columnId: string;
+			columnIndex: number;
+			targetVisibleIndex: number;
+	  }
+	| {
+			type: "cross-column";
+			cardId: string;
+			sourceColumnId: string;
+			sourceColumnIndex: number;
+			targetColumnId: string;
+			targetColumnIndex: number;
+			targetVisibleIndex: number;
+	  }
+	| {
+			type: "none";
+	  };
+
 export function getGroupColumnId(
 	group: Pick<BasesEntryGroup, "key" | "hasKey">,
 ): string {
@@ -396,11 +424,173 @@ export function moveCardBetweenColumns(
 	};
 }
 
+export function getKeyboardArrowDirection(
+	key: string,
+): KanbanKeyboardDirection | null {
+	switch (key) {
+		case "ArrowLeft":
+			return "left";
+		case "ArrowRight":
+			return "right";
+		case "ArrowUp":
+			return "up";
+		case "ArrowDown":
+			return "down";
+		default:
+			return null;
+	}
+}
+
+export function getInitialKeyboardFocusCardId(
+	boardOrder: KanbanRenderedColumnOrder[],
+): string | null {
+	for (const column of boardOrder) {
+		const firstCardId = column.cardIds[0];
+		if (typeof firstCardId === "string") {
+			return firstCardId;
+		}
+	}
+
+	return null;
+}
+
+export function getKeyboardFocusCardId(
+	boardOrder: KanbanRenderedColumnOrder[],
+	currentCardId: string | null,
+	direction: KanbanKeyboardDirection,
+): string | null {
+	const currentLocation =
+		currentCardId === null
+			? null
+			: getKeyboardCardLocation(boardOrder, currentCardId);
+	if (currentLocation === null) {
+		return getInitialKeyboardFocusCardId(boardOrder);
+	}
+
+	const currentColumn = boardOrder[currentLocation.columnIndex];
+	if (!currentColumn) {
+		return null;
+	}
+
+	if (direction === "up" || direction === "down") {
+		const targetCardIndex =
+			currentLocation.cardIndex + (direction === "up" ? -1 : 1);
+		const targetCardId = currentColumn.cardIds[targetCardIndex];
+		return typeof targetCardId === "string" ? targetCardId : null;
+	}
+
+	return getHorizontalKeyboardFocusCardId(
+		boardOrder,
+		currentLocation.columnIndex,
+		currentLocation.cardIndex,
+		direction === "left" ? -1 : 1,
+	);
+}
+
+export function getKeyboardCardMovePlan(
+	boardOrder: KanbanRenderedColumnOrder[],
+	cardId: string,
+	direction: KanbanKeyboardDirection,
+	options: { sendToBoundary?: boolean } = {},
+): KanbanKeyboardCardMovePlan {
+	const currentLocation = getKeyboardCardLocation(boardOrder, cardId);
+	if (currentLocation === null) {
+		return { type: "none" };
+	}
+
+	const currentColumn = boardOrder[currentLocation.columnIndex];
+	if (!currentColumn) {
+		return { type: "none" };
+	}
+
+	if (direction === "up" || direction === "down") {
+		const boundaryIndex = direction === "up" ? 0 : currentColumn.cardIds.length - 1;
+		const targetVisibleIndex = options.sendToBoundary
+			? boundaryIndex
+			: currentLocation.cardIndex + (direction === "up" ? -1 : 1);
+		if (
+			targetVisibleIndex < 0 ||
+			targetVisibleIndex >= currentColumn.cardIds.length ||
+			targetVisibleIndex === currentLocation.cardIndex
+		) {
+			return { type: "none" };
+		}
+
+		return {
+			type: "same-column",
+			cardId,
+			columnId: currentColumn.columnId,
+			columnIndex: currentLocation.columnIndex,
+			targetVisibleIndex,
+		};
+	}
+
+	const targetColumnIndex =
+		currentLocation.columnIndex + (direction === "left" ? -1 : 1);
+	const targetColumn = boardOrder[targetColumnIndex];
+	if (!targetColumn) {
+		return { type: "none" };
+	}
+
+	return {
+		type: "cross-column",
+		cardId,
+		sourceColumnId: currentColumn.columnId,
+		sourceColumnIndex: currentLocation.columnIndex,
+		targetColumnId: targetColumn.columnId,
+		targetColumnIndex,
+		targetVisibleIndex: Math.min(
+			currentLocation.cardIndex,
+			targetColumn.cardIds.length,
+		),
+	};
+}
+
 function createEmptyKanbanState(): KanbanState {
 	return {
 		columnOrders: {},
 		cardOrders: {},
 	};
+}
+
+function getKeyboardCardLocation(
+	boardOrder: KanbanRenderedColumnOrder[],
+	cardId: string,
+): { columnIndex: number; cardIndex: number } | null {
+	for (const [columnIndex, column] of boardOrder.entries()) {
+		const cardIndex = column.cardIds.indexOf(cardId);
+		if (cardIndex !== -1) {
+			return { columnIndex, cardIndex };
+		}
+	}
+
+	return null;
+}
+
+function getHorizontalKeyboardFocusCardId(
+	boardOrder: KanbanRenderedColumnOrder[],
+	currentColumnIndex: number,
+	currentCardIndex: number,
+	offset: -1 | 1,
+): string | null {
+	for (
+		let targetColumnIndex = currentColumnIndex + offset;
+		targetColumnIndex >= 0 && targetColumnIndex < boardOrder.length;
+		targetColumnIndex += offset
+	) {
+		const targetColumn = boardOrder[targetColumnIndex];
+		if (!targetColumn || targetColumn.cardIds.length === 0) {
+			continue;
+		}
+
+		const targetCardId =
+			targetColumn.cardIds[
+				Math.min(currentCardIndex, targetColumn.cardIds.length - 1)
+			];
+		return typeof targetCardId === "string" ? targetCardId : null;
+	}
+
+	return null;
 }
 
 function hasManualCardOrderForGrouping(

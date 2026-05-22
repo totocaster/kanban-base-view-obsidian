@@ -10,6 +10,10 @@ import {
 	getCurrentSortKey,
 	getCurrentGroupingKey,
 	getGroupColumnId,
+	getInitialKeyboardFocusCardId,
+	getKeyboardArrowDirection,
+	getKeyboardCardMovePlan,
+	getKeyboardFocusCardId,
 	getOrderedEntriesForGroup,
 	getOrderedGroupsForCurrentGrouping,
 	moveCardBetweenColumns,
@@ -427,6 +431,299 @@ describe("moveCardBetweenColumns", () => {
 				"Hidden/e.md",
 			],
 		});
+	});
+});
+
+describe("getKeyboardArrowDirection", () => {
+	it("normalizes browser arrow key names", () => {
+		expect(getKeyboardArrowDirection("ArrowLeft")).toBe("left");
+		expect(getKeyboardArrowDirection("ArrowRight")).toBe("right");
+		expect(getKeyboardArrowDirection("ArrowUp")).toBe("up");
+		expect(getKeyboardArrowDirection("ArrowDown")).toBe("down");
+	});
+
+	it("ignores non-arrow keys", () => {
+		expect(getKeyboardArrowDirection("Enter")).toBeNull();
+	});
+});
+
+describe("getInitialKeyboardFocusCardId", () => {
+	it("returns the first card in the first non-empty rendered column", () => {
+		expect(
+			getInitialKeyboardFocusCardId([
+				{ columnId: "Backlog", cardIds: [] },
+				{ columnId: "Doing", cardIds: ["Tasks/b.md"] },
+			]),
+		).toBe("Tasks/b.md");
+	});
+
+	it("returns null when the rendered board has no cards", () => {
+		expect(
+			getInitialKeyboardFocusCardId([
+				{ columnId: "Backlog", cardIds: [] },
+			]),
+		).toBeNull();
+	});
+});
+
+describe("getKeyboardFocusCardId", () => {
+	const boardOrder = [
+		{
+			columnId: "Backlog",
+			cardIds: ["Tasks/a.md", "Tasks/b.md", "Tasks/c.md"],
+		},
+		{
+			columnId: "Blocked",
+			cardIds: [],
+		},
+		{
+			columnId: "Done",
+			cardIds: ["Tasks/d.md", "Tasks/e.md"],
+		},
+	];
+
+	it("falls back to the first card when there is no current card", () => {
+		expect(getKeyboardFocusCardId(boardOrder, null, "right")).toBe(
+			"Tasks/a.md",
+		);
+	});
+
+	it("falls back to the first card when the current card is no longer rendered", () => {
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/missing.md", "down"),
+		).toBe("Tasks/a.md");
+	});
+
+	it("moves up and down within the current column", () => {
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/b.md", "up"),
+		).toBe("Tasks/a.md");
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/b.md", "down"),
+		).toBe("Tasks/c.md");
+	});
+
+	it("does not wrap vertical focus past the column boundary", () => {
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/a.md", "up"),
+		).toBeNull();
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/c.md", "down"),
+		).toBeNull();
+	});
+
+	it("moves left and right between columns while preserving the visible row", () => {
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/b.md", "right"),
+		).toBe("Tasks/e.md");
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/e.md", "left"),
+		).toBe("Tasks/b.md");
+	});
+
+	it("clamps horizontal focus to the last card in a shorter target column", () => {
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/c.md", "right"),
+		).toBe("Tasks/e.md");
+	});
+
+	it("skips empty columns while moving focus horizontally", () => {
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/a.md", "right"),
+		).toBe("Tasks/d.md");
+	});
+
+	it("returns null when horizontal focus has no non-empty target column", () => {
+		expect(
+			getKeyboardFocusCardId(boardOrder, "Tasks/e.md", "right"),
+		).toBeNull();
+	});
+});
+
+describe("getKeyboardCardMovePlan", () => {
+	const boardOrder = [
+		{
+			columnId: "Backlog",
+			cardIds: ["Tasks/a.md", "Tasks/b.md", "Tasks/c.md"],
+		},
+		{
+			columnId: "Review",
+			cardIds: ["Tasks/d.md"],
+		},
+		{
+			columnId: "Done",
+			cardIds: [],
+		},
+	];
+
+	it("plans command-up and command-down as one-step same-column moves", () => {
+		expect(getKeyboardCardMovePlan(boardOrder, "Tasks/b.md", "up")).toEqual({
+			type: "same-column",
+			cardId: "Tasks/b.md",
+			columnId: "Backlog",
+			columnIndex: 0,
+			targetVisibleIndex: 0,
+		});
+		expect(getKeyboardCardMovePlan(boardOrder, "Tasks/b.md", "down")).toEqual({
+			type: "same-column",
+			cardId: "Tasks/b.md",
+			columnId: "Backlog",
+			columnIndex: 0,
+			targetVisibleIndex: 2,
+		});
+	});
+
+	it("does not plan same-column moves beyond the top or bottom", () => {
+		expect(getKeyboardCardMovePlan(boardOrder, "Tasks/a.md", "up")).toEqual({
+			type: "none",
+		});
+		expect(getKeyboardCardMovePlan(boardOrder, "Tasks/c.md", "down")).toEqual({
+			type: "none",
+		});
+	});
+
+	it("plans command-option-up and command-option-down as boundary moves", () => {
+		expect(
+			getKeyboardCardMovePlan(boardOrder, "Tasks/c.md", "up", {
+				sendToBoundary: true,
+			}),
+		).toEqual({
+			type: "same-column",
+			cardId: "Tasks/c.md",
+			columnId: "Backlog",
+			columnIndex: 0,
+			targetVisibleIndex: 0,
+		});
+		expect(
+			getKeyboardCardMovePlan(boardOrder, "Tasks/a.md", "down", {
+				sendToBoundary: true,
+			}),
+		).toEqual({
+			type: "same-column",
+			cardId: "Tasks/a.md",
+			columnId: "Backlog",
+			columnIndex: 0,
+			targetVisibleIndex: 2,
+		});
+	});
+
+	it("does not plan a boundary move when the card is already at that boundary", () => {
+		expect(
+			getKeyboardCardMovePlan(boardOrder, "Tasks/a.md", "up", {
+				sendToBoundary: true,
+			}),
+		).toEqual({ type: "none" });
+		expect(
+			getKeyboardCardMovePlan(boardOrder, "Tasks/c.md", "down", {
+				sendToBoundary: true,
+			}),
+		).toEqual({ type: "none" });
+	});
+
+	it("plans command-left and command-right as adjacent cross-column moves", () => {
+		expect(getKeyboardCardMovePlan(boardOrder, "Tasks/b.md", "right")).toEqual({
+			type: "cross-column",
+			cardId: "Tasks/b.md",
+			sourceColumnId: "Backlog",
+			sourceColumnIndex: 0,
+			targetColumnId: "Review",
+			targetColumnIndex: 1,
+			targetVisibleIndex: 1,
+		});
+		expect(getKeyboardCardMovePlan(boardOrder, "Tasks/d.md", "left")).toEqual({
+			type: "cross-column",
+			cardId: "Tasks/d.md",
+			sourceColumnId: "Review",
+			sourceColumnIndex: 1,
+			targetColumnId: "Backlog",
+			targetColumnIndex: 0,
+			targetVisibleIndex: 0,
+		});
+	});
+
+	it("moves horizontally into an empty adjacent column at the top insertion point", () => {
+		expect(getKeyboardCardMovePlan(boardOrder, "Tasks/d.md", "right")).toEqual({
+			type: "cross-column",
+			cardId: "Tasks/d.md",
+			sourceColumnId: "Review",
+			sourceColumnIndex: 1,
+			targetColumnId: "Done",
+			targetColumnIndex: 2,
+			targetVisibleIndex: 0,
+		});
+	});
+
+	it("does not skip an empty adjacent column when moving horizontally", () => {
+		expect(
+			getKeyboardCardMovePlan(
+				[
+					{ columnId: "Backlog", cardIds: ["Tasks/a.md"] },
+					{ columnId: "Waiting", cardIds: [] },
+					{ columnId: "Done", cardIds: ["Tasks/b.md"] },
+				],
+				"Tasks/a.md",
+				"right",
+			),
+		).toEqual({
+			type: "cross-column",
+			cardId: "Tasks/a.md",
+			sourceColumnId: "Backlog",
+			sourceColumnIndex: 0,
+			targetColumnId: "Waiting",
+			targetColumnIndex: 1,
+			targetVisibleIndex: 0,
+		});
+	});
+
+	it("treats command-option-left and command-option-right like normal horizontal moves", () => {
+		expect(
+			getKeyboardCardMovePlan(boardOrder, "Tasks/b.md", "right", {
+				sendToBoundary: true,
+			}),
+		).toEqual({
+			type: "cross-column",
+			cardId: "Tasks/b.md",
+			sourceColumnId: "Backlog",
+			sourceColumnIndex: 0,
+			targetColumnId: "Review",
+			targetColumnIndex: 1,
+			targetVisibleIndex: 1,
+		});
+		expect(
+			getKeyboardCardMovePlan(boardOrder, "Tasks/d.md", "left", {
+				sendToBoundary: true,
+			}),
+		).toEqual({
+			type: "cross-column",
+			cardId: "Tasks/d.md",
+			sourceColumnId: "Review",
+			sourceColumnIndex: 1,
+			targetColumnId: "Backlog",
+			targetColumnIndex: 0,
+			targetVisibleIndex: 0,
+		});
+	});
+
+	it("does not plan horizontal moves past the first or last column", () => {
+		expect(getKeyboardCardMovePlan(boardOrder, "Tasks/a.md", "left")).toEqual({
+			type: "none",
+		});
+		expect(
+			getKeyboardCardMovePlan(
+				[
+					...boardOrder.slice(0, 2),
+					{ columnId: "Done", cardIds: ["Tasks/e.md"] },
+				],
+				"Tasks/e.md",
+				"right",
+			),
+		).toEqual({ type: "none" });
+	});
+
+	it("does not plan a move for a card that is no longer rendered", () => {
+		expect(
+			getKeyboardCardMovePlan(boardOrder, "Tasks/missing.md", "right"),
+		).toEqual({ type: "none" });
 	});
 });
 

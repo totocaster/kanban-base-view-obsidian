@@ -27,6 +27,11 @@
 	display: none;
 }
 
+.bases-kanban-board:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
 .bases-kanban-column-drop-slot {
 	flex: 0 0 3px;
 	align-self: stretch;
@@ -114,6 +119,10 @@
 		box-shadow 120ms ease;
 }
 
+.bases-kanban-card:focus {
+	outline: none;
+}
+
 .bases-kanban-card-link {
 	all: unset;
 	appearance: none;
@@ -147,6 +156,12 @@
 		var(--interactive-accent) 35%,
 		var(--background-modifier-border)
 	);
+}
+
+.bases-kanban-card:focus-visible,
+.bases-kanban-card--focused {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 1px var(--interactive-accent);
 }
 
 .bases-kanban-card-properties {
