@@ -1,6 +1,6 @@
 {
 	"name": "bases-kanban-view",
-	"version": "0.6.0",
+	"version": "0.6.1",
 	"private": true,
 	"license": "MIT",
 	"description": "Adds a kanban layout for Bases.",
