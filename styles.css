@@ -233,7 +233,7 @@
 .bases-kanban-card-preview {
 	display: -webkit-box;
 	position: relative;
-	margin-top: var(--size-2-2);
+	margin-top: var(--size-4-2);
 	overflow: hidden;
 	-webkit-box-orient: vertical;
 	color: var(--text-muted);
