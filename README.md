@@ -32,11 +32,11 @@ Cards can be focused with the mouse or with the keyboard. When a card is focused
 
 Card movement shortcuts use Obsidian's modifier key: `⌘` on macOS / `Ctrl` on Windows and Linux. Boundary shortcuts also use `⌥` on macOS / `Alt` on Windows and Linux.
 
-- `⌘+↑` / `Ctrl+↑` and `⌘+↓` / `Ctrl+↓` move the focused card one position within its column.
-- `⌘+←` / `Ctrl+←` and `⌘+→` / `Ctrl+→` move the focused card to the adjacent column.
-- `⌥+⌘+↑` / `Alt+Ctrl+↑` sends the focused card to the top of its column.
-- `⌥+⌘+↓` / `Alt+Ctrl+↓` sends the focused card to the bottom of its column.
-- `⌥+⌘+←` / `Alt+Ctrl+←` and `⌥+⌘+→` / `Alt+Ctrl+→` behave the same as the non-option column moves.
+- `⌘↑` / `Ctrl+↑` and `⌘↓` / `Ctrl+↓` move the focused card one position within its column.
+- `⌘←` / `Ctrl+←` and `⌘→` / `Ctrl+→` move the focused card to the adjacent column.
+- `⌥⌘↑` / `Alt+Ctrl+↑` sends the focused card to the top of its column.
+- `⌥⌘↓` / `Alt+Ctrl+↓` sends the focused card to the bottom of its column.
+- `⌥⌘←` / `Alt+Ctrl+←` and `⌥⌘→` / `Alt+Ctrl+→` behave the same as the non-option column moves.
 
 Keyboard card movement is available when the board has an active Bases grouping. Cross-column keyboard moves require the grouping to be a writable `note.*` property because the plugin must update note frontmatter to move the card between groups. Boards grouped by `formula.*` properties can still use column ordering and same-column card ordering, but formula columns are computed and cannot be used as writable drop targets.
 
