@@ -230,6 +230,25 @@
 	max-width: 100%;
 }
 
+.bases-kanban-card-preview {
+	display: -webkit-box;
+	margin-top: var(--size-2-2);
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: var(--line-height-tight);
+	white-space: normal;
+}
+
+.bases-kanban-card-preview--small {
+	-webkit-line-clamp: 2;
+}
+
+.bases-kanban-card-preview--large {
+	-webkit-line-clamp: 6;
+}
+
 .bases-kanban-empty {
 	margin: 0;
 	padding: var(--size-4-2);

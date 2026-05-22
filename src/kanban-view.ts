@@ -42,12 +42,18 @@ import {
 	KANBAN_NULL_COLUMN_ID,
 } from "./kanban-ordering";
 import { getCardPropertyItems, hasCardPropertyValue } from "./card-properties";
+import {
+	createCardPreviewText,
+	normalizeCardPreviewMode,
+	type VisibleCardPreviewMode,
+} from "./card-preview";
 
 export const KANBAN_VIEW_TYPE = "kanban";
 export const KANBAN_VIEW_NAME = "Kanban";
 export const KANBAN_VIEW_ICON = "lucide-columns-3";
 export const EMPTY_GROUP_TITLE = "Ungrouped";
 const SHOW_EMPTY_PROPERTIES_KEY = "showEmptyProperties";
+const CARD_PREVIEW_KEY = "contentPreview";
 const COLUMN_ID_ATTR = "data-column-id";
 const CARD_ID_ATTR = "data-card-id";
 const COLUMN_DRAGGING_CLASS = "bases-kanban-column--dragging";
@@ -63,6 +69,13 @@ type MenuItemWithSubmenu = MenuItem & {
 	setSubmenu?: () => Menu;
 };
 type CardAnimationRect = Pick<DOMRectReadOnly, "left" | "top">;
+type CardPreviewCacheEntry = {
+	mtime: number;
+	size: number;
+	mode: VisibleCardPreviewMode;
+	titleText: string;
+	text: string | null;
+};
 export type CardMoveAnimationTransform = {
 	translateX: number;
 	translateY: number;
@@ -129,6 +142,17 @@ export function createKanbanViewRegistration(): BasesViewRegistration {
 				key: SHOW_EMPTY_PROPERTIES_KEY,
 				default: true,
 			},
+			{
+				type: "dropdown",
+				displayName: "Content preview",
+				key: CARD_PREVIEW_KEY,
+				default: "none",
+				options: {
+					none: "None",
+					small: "Small",
+					large: "Large",
+				},
+			},
 		],
 	};
 }
@@ -194,6 +218,8 @@ class BasesKanbanScaffoldView extends BasesView {
 	private lastMouseFocusPoint: MouseFocusPoint | null = null;
 	private suppressedMouseFocusPoint: MouseFocusPoint | null = null;
 	private lastObservedSortKey: string | null = null;
+	private previewRenderGeneration = 0;
+	private readonly cardPreviewCache = new Map<string, CardPreviewCacheEntry>();
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
 		super(controller);
@@ -201,6 +227,7 @@ class BasesKanbanScaffoldView extends BasesView {
 	}
 
 	onDataUpdated(): void {
+		this.previewRenderGeneration += 1;
 		this.syncCardOrdersWithCurrentSort();
 		this.resetColumnInteractionState();
 		this.resetCardInteractionState();
@@ -383,6 +410,7 @@ class BasesKanbanScaffoldView extends BasesView {
 		titleEl.draggable = false;
 
 		this.renderCardProperties(cardEl, entry);
+		this.renderCardPreview(cardEl, entry);
 	}
 
 	private openEntry(event: MouseEvent | KeyboardEvent, entry: BasesEntry): void {
@@ -462,6 +490,141 @@ class BasesKanbanScaffoldView extends BasesView {
 	private shouldShowEmptyProperties(): boolean {
 		const value = this.config.get(SHOW_EMPTY_PROPERTIES_KEY);
 		return typeof value === "boolean" ? value : true;
+	}
+
+	private renderCardPreview(cardEl: HTMLElement, entry: BasesEntry): void {
+		const previewMode = this.getCardPreviewMode();
+		if (previewMode === "none") {
+			return;
+		}
+
+		const cachedPreviewText = this.getCachedCardPreviewText(entry, previewMode);
+		if (cachedPreviewText !== undefined) {
+			this.appendCardPreview(cardEl, previewMode, cachedPreviewText);
+			return;
+		}
+
+		const renderGeneration = this.previewRenderGeneration;
+		const stalePreviewText = this.getStaleCardPreviewText(entry, previewMode);
+		if (stalePreviewText !== undefined) {
+			const previewEl = this.appendCardPreview(
+				cardEl,
+				previewMode,
+				stalePreviewText,
+			);
+			this.refreshCardPreview(cardEl, previewEl, entry, previewMode, renderGeneration);
+			return;
+		}
+
+		this.refreshCardPreview(cardEl, null, entry, previewMode, renderGeneration);
+	}
+
+	private appendCardPreview(
+		cardEl: HTMLElement,
+		mode: VisibleCardPreviewMode,
+		previewText: string | null,
+	): HTMLElement | null {
+		if (previewText === null) {
+			return null;
+		}
+
+		const previewEl = cardEl.createDiv({
+			cls: "bases-kanban-card-preview",
+		});
+		previewEl.addClass(`bases-kanban-card-preview--${mode}`);
+		previewEl.setText(previewText);
+		return previewEl;
+	}
+
+	private refreshCardPreview(
+		cardEl: HTMLElement,
+		previewEl: HTMLElement | null,
+		entry: BasesEntry,
+		mode: VisibleCardPreviewMode,
+		renderGeneration: number,
+	): void {
+		void this.readCardPreviewText(entry, mode)
+			.then((previewText) => {
+				if (this.previewRenderGeneration !== renderGeneration || !cardEl.isConnected) {
+					return;
+				}
+
+				if (previewText === null) {
+					previewEl?.remove();
+					return;
+				}
+
+				if (previewEl) {
+					previewEl.setText(previewText);
+					return;
+				}
+
+				this.appendCardPreview(cardEl, mode, previewText);
+			})
+			.catch(() => undefined);
+	}
+
+	private getCachedCardPreviewText(
+		entry: BasesEntry,
+		mode: VisibleCardPreviewMode,
+	): string | null | undefined {
+		const { file } = entry;
+		const cachedPreview = this.cardPreviewCache.get(file.path);
+		if (
+			cachedPreview &&
+			cachedPreview.mtime === file.stat.mtime &&
+			cachedPreview.size === file.stat.size &&
+			cachedPreview.mode === mode &&
+			cachedPreview.titleText === file.basename
+		) {
+			return cachedPreview.text;
+		}
+
+		return undefined;
+	}
+
+	private getStaleCardPreviewText(
+		entry: BasesEntry,
+		mode: VisibleCardPreviewMode,
+	): string | null | undefined {
+		const { file } = entry;
+		const cachedPreview = this.cardPreviewCache.get(file.path);
+		if (
+			cachedPreview &&
+			cachedPreview.mode === mode &&
+			cachedPreview.titleText === file.basename
+		) {
+			return cachedPreview.text;
+		}
+
+		return undefined;
+	}
+
+	private async readCardPreviewText(
+		entry: BasesEntry,
+		mode: VisibleCardPreviewMode,
+	): Promise<string | null> {
+		const cachedPreviewText = this.getCachedCardPreviewText(entry, mode);
+		if (cachedPreviewText !== undefined) {
+			return cachedPreviewText;
+		}
+
+		const { file } = entry;
+		const markdown = await this.app.vault.cachedRead(file);
+		const previewText = createCardPreviewText(markdown, mode, file.basename);
+		this.cardPreviewCache.set(file.path, {
+			mtime: file.stat.mtime,
+			size: file.stat.size,
+			mode,
+			titleText: file.basename,
+			text: previewText,
+		});
+
+		return previewText;
+	}
+
+	private getCardPreviewMode(): "none" | VisibleCardPreviewMode {
+		return normalizeCardPreviewMode(this.config.get(CARD_PREVIEW_KEY));
 	}
 
 	private syncCardOrdersWithCurrentSort(): void {

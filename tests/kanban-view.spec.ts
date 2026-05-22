@@ -227,6 +227,27 @@ describe("createKanbanViewRegistration", () => {
 				key: "showEmptyProperties",
 				default: true,
 			}),
+			expect.any(Object),
+		]);
+	});
+
+	it("registers a view dropdown to control card content previews", () => {
+		const registration = createKanbanViewRegistration();
+		const options = registration.options?.({} as never);
+
+		expect(options).toEqual([
+			expect.any(Object),
+			expect.objectContaining({
+				type: "dropdown",
+				displayName: "Content preview",
+				key: "contentPreview",
+				default: "none",
+				options: {
+					none: "None",
+					small: "Small",
+					large: "Large",
+				},
+			}),
 		]);
 	});
 });
