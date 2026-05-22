@@ -1,7 +1,7 @@
 {
 	"id": "bases-kanban-view-ttvl",
 	"name": "Better Kanban Bases View",
-	"version": "0.5.0",
+	"version": "0.6.0",
 	"minAppVersion": "1.10.2",
 	"description": "Adds a kanban layout for Bases.",
 	"author": "Toto Tvalavadze",
