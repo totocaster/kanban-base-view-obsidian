@@ -52,6 +52,7 @@ export const KANBAN_VIEW_TYPE = "kanban";
 export const KANBAN_VIEW_NAME = "Kanban";
 export const KANBAN_VIEW_ICON = "lucide-columns-3";
 export const EMPTY_GROUP_TITLE = "Ungrouped";
+const KANBAN_BOARD_LABEL = "Kanban board";
 const SHOW_EMPTY_PROPERTIES_KEY = "showEmptyProperties";
 const CARD_PREVIEW_KEY = "contentPreview";
 const COLUMN_ID_ATTR = "data-column-id";
@@ -63,6 +64,7 @@ const COLUMN_DROP_SLOT_ACTIVE_CLASS = "bases-kanban-drop-slot--active";
 const DRAG_PREVIEW_CLASS = "bases-kanban-drag-preview";
 const KEYBOARD_CARD_MOVE_ANIMATION_DURATION_MS = 160;
 const KEYBOARD_CARD_MOVE_ANIMATION_EASING = "cubic-bezier(0.2, 0, 0, 1)";
+let nextBoardLabelId = 0;
 
 type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
 type MenuItemWithSubmenu = MenuItem & {
@@ -203,6 +205,7 @@ export function shouldReleaseMouseFocusSuppression(
 class BasesKanbanScaffoldView extends BasesView {
 	readonly type = KANBAN_VIEW_TYPE;
 	private readonly containerEl: HTMLElement;
+	private readonly boardLabelId = `bases-kanban-board-label-${nextBoardLabelId++}`;
 	private boardEl: HTMLElement | null = null;
 	private draggedColumnEl: HTMLElement | null = null;
 	private activeColumnSlotEl: HTMLElement | null = null;
@@ -239,7 +242,14 @@ class BasesKanbanScaffoldView extends BasesView {
 		const boardEl = this.containerEl.createDiv({ cls: "bases-kanban-board" });
 		this.boardEl = boardEl;
 		boardEl.tabIndex = 0;
-		boardEl.setAttribute("aria-label", "Kanban board");
+		boardEl.setAttribute("aria-labelledby", this.boardLabelId);
+		boardEl.createSpan({
+			text: KANBAN_BOARD_LABEL,
+			attr: {
+				id: this.boardLabelId,
+				hidden: true,
+			},
+		});
 		boardEl.addEventListener("keydown", (event) => {
 			void this.handleBoardKeyDown(event);
 		});
