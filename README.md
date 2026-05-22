@@ -2,13 +2,9 @@
 
 ![Bases Kanban View screenshot](.github/assets/bases-kanban-view-screenshot.png)
 
-A minimal kanban layout for Obsidian Bases, built as a take-home exercise.
+A minimal kanban layout for Obsidian Bases.
 
-- Time spent: full 5 hours for the implementation
-- Git history is present in the repo
-- Vault zip used for testing, with sample notes included: [bases-kanban-view-test-vault.zip](https://www.dropbox.com/scl/fi/344ty9yaljin736znkpne/bases-kanban-view-test-vault.zip?rlkey=vr45jhluols8wt74kmeojm3oh&st=zmq4dc5f&dl=0)
-
-## What I built
+## Features
 
 - A custom `Kanban` Bases view
 - Columns derived from the active Bases grouping (see note 1 below)
@@ -20,7 +16,7 @@ A minimal kanban layout for Obsidian Bases, built as a take-home exercise.
 - Persisted manual card order per grouping (see note 2 below)
 - A small view option to hide empty properties on cards
 
-## Philosophy
+## Design goals
 
 - Reuse the existing Sort, Group, Filter, and Properties controls instead of introducing separate kanban settings
 - Keep the styling minimal so the view feels like part of Bases rather than a themed plugin
@@ -39,10 +35,6 @@ In practice, the public `BasesViewConfig` surface exposed the active sort state 
 
 This is an intentional tradeoff: it uses observed runtime shape because the documented public API did not appear to expose the active `groupBy`, but it avoids introducing duplicate settings and keeps column ordering scoped to the grouping the user actually picked in Bases.
 
-Initial implementation landed in commit `844be83`.
-
-I might be missing something though. Would like to discuss.
-
 ### 2. Note on ordering behavior
 
 Card ordering has two "modes" (not a user facing term), automatic and manual.
@@ -55,9 +47,9 @@ Manual mode is reset as soon as the user changes the Bases sort again.
 
 ---
 
-## Given more time
+## Future work
 
-- Formula support for properties (frankly, I forget until very last moment)
+- Formula support for properties
 - Better keyboard navigation, including moving cards and focus mode (like Things for Mac)
 - Richer context menus for moving cards, opening notes, and similar actions
 - Better handling for date-typed properties, including daily note awareness and interaction
