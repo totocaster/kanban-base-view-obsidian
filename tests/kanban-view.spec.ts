@@ -7,9 +7,11 @@ import {
 	KANBAN_VIEW_TYPE,
 	createKanbanViewRegistration,
 	formatNoteCount,
+	getCardMoveAnimationTransforms,
 	getWritableGroupingPropertyName,
 	getGroupTitle,
 	registerKanbanView,
+	shouldReleaseMouseFocusSuppression,
 } from "../src/kanban-view";
 
 describe("getGroupTitle", () => {
@@ -42,6 +44,100 @@ describe("formatNoteCount", () => {
 
 	it("formats a plural note count", () => {
 		expect(formatNoteCount(3)).toBe("3 notes");
+	});
+});
+
+describe("getCardMoveAnimationTransforms", () => {
+	it("calculates inverse transforms for cards that moved", () => {
+		const transforms = getCardMoveAnimationTransforms(
+			new Map([
+				["Tasks/a.md", { left: 10, top: 20 }],
+				["Tasks/b.md", { left: 10, top: 80 }],
+			]),
+			new Map([
+				["Tasks/a.md", { left: 10, top: 80 }],
+				["Tasks/b.md", { left: 10, top: 20 }],
+			]),
+		);
+
+		expect(transforms).toEqual(
+			new Map([
+				["Tasks/a.md", { translateX: 0, translateY: -60 }],
+				["Tasks/b.md", { translateX: 0, translateY: 60 }],
+			]),
+		);
+	});
+
+	it("includes horizontal movement for cross-column card moves", () => {
+		const transforms = getCardMoveAnimationTransforms(
+			new Map([["Tasks/a.md", { left: 12, top: 20 }]]),
+			new Map([["Tasks/a.md", { left: 240, top: 84 }]]),
+		);
+
+		expect(transforms).toEqual(
+			new Map([["Tasks/a.md", { translateX: -228, translateY: -64 }]]),
+		);
+	});
+
+	it("skips missing and visually stationary cards", () => {
+		const transforms = getCardMoveAnimationTransforms(
+			new Map([
+				["Tasks/a.md", { left: 10, top: 20 }],
+				["Tasks/b.md", { left: 20, top: 40 }],
+			]),
+			new Map([
+				["Tasks/a.md", { left: 10.2, top: 20.3 }],
+				["Tasks/c.md", { left: 20, top: 40 }],
+			]),
+		);
+
+		expect(transforms).toEqual(new Map());
+	});
+});
+
+describe("shouldReleaseMouseFocusSuppression", () => {
+	it("keeps mouse focus suppressed for same-coordinate mouseover events", () => {
+		expect(
+			shouldReleaseMouseFocusSuppression(
+				{ clientX: 24, clientY: 48 },
+				{ clientX: 24, clientY: 48 },
+				"mouseover",
+			),
+		).toBe(false);
+	});
+
+	it("releases mouse focus suppression once the pointer coordinates change", () => {
+		expect(
+			shouldReleaseMouseFocusSuppression(
+				{ clientX: 24, clientY: 48 },
+				{ clientX: 25, clientY: 48 },
+				"mouseover",
+			),
+		).toBe(true);
+		expect(
+			shouldReleaseMouseFocusSuppression(
+				{ clientX: 24, clientY: 48 },
+				{ clientX: 24, clientY: 49 },
+				"mousemove",
+			),
+		).toBe(true);
+	});
+
+	it("requires mousemove before releasing suppression when no prior point exists", () => {
+		expect(
+			shouldReleaseMouseFocusSuppression(
+				null,
+				{ clientX: 24, clientY: 48 },
+				"mouseover",
+			),
+		).toBe(false);
+		expect(
+			shouldReleaseMouseFocusSuppression(
+				null,
+				{ clientX: 24, clientY: 48 },
+				"mousemove",
+			),
+		).toBe(true);
 	});
 });
 

@@ -150,14 +150,6 @@
 	border-radius: var(--radius-s);
 }
 
-.bases-kanban-card:hover {
-	border-color: color-mix(
-		in srgb,
-		var(--interactive-accent) 35%,
-		var(--background-modifier-border)
-	);
-}
-
 .bases-kanban-card:focus-visible,
 .bases-kanban-card--focused {
 	border-color: var(--interactive-accent);

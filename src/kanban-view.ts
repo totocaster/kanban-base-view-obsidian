@@ -55,10 +55,21 @@ const CARD_DRAGGING_CLASS = "bases-kanban-card--dragging";
 const CARD_FOCUSED_CLASS = "bases-kanban-card--focused";
 const COLUMN_DROP_SLOT_ACTIVE_CLASS = "bases-kanban-drop-slot--active";
 const DRAG_PREVIEW_CLASS = "bases-kanban-drag-preview";
+const KEYBOARD_CARD_MOVE_ANIMATION_DURATION_MS = 160;
+const KEYBOARD_CARD_MOVE_ANIMATION_EASING = "cubic-bezier(0.2, 0, 0, 1)";
 
 type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
 type MenuItemWithSubmenu = MenuItem & {
 	setSubmenu?: () => Menu;
+};
+type CardAnimationRect = Pick<DOMRectReadOnly, "left" | "top">;
+export type CardMoveAnimationTransform = {
+	translateX: number;
+	translateY: number;
+};
+export type MouseFocusPoint = {
+	clientX: number;
+	clientY: number;
 };
 
 export function getWritableGroupingPropertyName(
@@ -126,6 +137,45 @@ export function registerKanbanView(plugin: BasesViewRegistrar): void {
 	plugin.registerBasesView(KANBAN_VIEW_TYPE, createKanbanViewRegistration());
 }
 
+export function getCardMoveAnimationTransforms(
+	beforeRects: Map<string, CardAnimationRect>,
+	afterRects: Map<string, CardAnimationRect>,
+): Map<string, CardMoveAnimationTransform> {
+	const transforms = new Map<string, CardMoveAnimationTransform>();
+
+	for (const [cardId, afterRect] of afterRects) {
+		const beforeRect = beforeRects.get(cardId);
+		if (!beforeRect) {
+			continue;
+		}
+
+		const translateX = beforeRect.left - afterRect.left;
+		const translateY = beforeRect.top - afterRect.top;
+		if (Math.abs(translateX) < 0.5 && Math.abs(translateY) < 0.5) {
+			continue;
+		}
+
+		transforms.set(cardId, { translateX, translateY });
+	}
+
+	return transforms;
+}
+
+export function shouldReleaseMouseFocusSuppression(
+	suppressedPoint: MouseFocusPoint | null,
+	mousePoint: MouseFocusPoint,
+	eventType: string,
+): boolean {
+	if (suppressedPoint === null) {
+		return eventType === "mousemove";
+	}
+
+	return (
+		suppressedPoint.clientX !== mousePoint.clientX ||
+		suppressedPoint.clientY !== mousePoint.clientY
+	);
+}
+
 class BasesKanbanScaffoldView extends BasesView {
 	readonly type = KANBAN_VIEW_TYPE;
 	private readonly containerEl: HTMLElement;
@@ -138,6 +188,11 @@ class BasesKanbanScaffoldView extends BasesView {
 	private focusedCardEl: HTMLElement | null = null;
 	private focusedCardId: string | null = null;
 	private pendingFocusCardId: string | null = null;
+	private pendingKeyboardCardMoveRects: Map<string, CardAnimationRect> | null = null;
+	private isKeyboardCardMoveAnimationReady = false;
+	private isMouseFocusSuppressed = false;
+	private lastMouseFocusPoint: MouseFocusPoint | null = null;
+	private suppressedMouseFocusPoint: MouseFocusPoint | null = null;
 	private lastObservedSortKey: string | null = null;
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
@@ -180,6 +235,7 @@ class BasesKanbanScaffoldView extends BasesView {
 			this.focusRenderedCardById(focusCardId);
 		}
 		this.pendingFocusCardId = null;
+		this.animatePendingKeyboardCardMove();
 	}
 
 	private renderGroup(boardEl: HTMLElement, group: BasesEntryGroup): void {
@@ -263,11 +319,11 @@ class BasesKanbanScaffoldView extends BasesView {
 		const cardId = getCardId(entry);
 		cardEl.setAttribute(CARD_ID_ATTR, cardId);
 		cardEl.tabIndex = 0;
-		cardEl.addEventListener("mouseover", () => {
-			this.focusCardElement(cardEl, { preventScroll: true });
+		cardEl.addEventListener("mouseover", (event) => {
+			this.handleCardMouseFocus(event, cardEl);
 		});
-		cardEl.addEventListener("mousemove", () => {
-			this.focusCardElement(cardEl, { preventScroll: true });
+		cardEl.addEventListener("mousemove", (event) => {
+			this.handleCardMouseFocus(event, cardEl);
 		});
 		cardEl.addEventListener("focusin", () => {
 			this.setFocusedCard(cardEl);
@@ -444,6 +500,7 @@ class BasesKanbanScaffoldView extends BasesView {
 			direction,
 		);
 		if (targetCardId !== null) {
+			this.suppressMouseFocusUntilPointerMoves();
 			this.focusRenderedCardById(targetCardId);
 		}
 	}
@@ -477,6 +534,7 @@ class BasesKanbanScaffoldView extends BasesView {
 
 		event.preventDefault();
 		event.stopPropagation();
+		this.suppressMouseFocusUntilPointerMoves();
 		this.pendingFocusCardId = cardId;
 		this.focusedCardId = cardId;
 
@@ -520,12 +578,17 @@ class BasesKanbanScaffoldView extends BasesView {
 						movePlan.targetVisibleIndex,
 					);
 
-		writeCurrentCardOrder(
+		this.pendingKeyboardCardMoveRects = this.captureRenderedCardRects();
+		this.isKeyboardCardMoveAnimationReady = true;
+		const didWrite = writeCurrentCardOrder(
 			this,
 			this.data.groupedData,
 			movePlan.columnId,
 			nextCardOrder,
 		);
+		if (!didWrite) {
+			this.clearPendingKeyboardCardMoveAnimation();
+		}
 		this.focusRenderedCardById(movePlan.cardId);
 	}
 
@@ -546,7 +609,9 @@ class BasesKanbanScaffoldView extends BasesView {
 			return;
 		}
 
-		await this.handleCrossColumnCardDrop({
+		this.pendingKeyboardCardMoveRects = this.captureRenderedCardRects();
+		this.isKeyboardCardMoveAnimationReady = false;
+		const didMove = await this.handleCrossColumnCardDrop({
 			cardId: movePlan.cardId,
 			sourceColumnId: movePlan.sourceColumnId,
 			targetColumnId: movePlan.targetColumnId,
@@ -555,7 +620,13 @@ class BasesKanbanScaffoldView extends BasesView {
 			targetCardOrder: getCardOrderForGroup(this, targetGroup),
 			targetVisibleCardOrder,
 			targetSlotIndex: movePlan.targetVisibleIndex,
+			beforePersistCardOrders: () => {
+				this.isKeyboardCardMoveAnimationReady = true;
+			},
 		});
+		if (!didMove) {
+			this.clearPendingKeyboardCardMoveAnimation();
+		}
 		this.focusRenderedCardById(movePlan.cardId);
 	}
 
@@ -599,18 +670,89 @@ class BasesKanbanScaffoldView extends BasesView {
 			.filter((column) => column.columnId.length > 0);
 	}
 
-	private focusRenderedCardById(cardId: string): boolean {
-		const boardEl = this.boardEl;
-		if (!(boardEl instanceof HTMLElement)) {
-			return false;
+	private captureRenderedCardRects(): Map<string, CardAnimationRect> {
+		const cardRects = new Map<string, CardAnimationRect>();
+		for (const cardEl of this.getRenderedCardElements()) {
+			const cardId = cardEl.getAttribute(CARD_ID_ATTR);
+			if (!cardId) {
+				continue;
+			}
+
+			const rect = cardEl.getBoundingClientRect();
+			cardRects.set(cardId, {
+				left: rect.left,
+				top: rect.top,
+			});
 		}
 
-		const cardEl = Array.from(
-			boardEl.querySelectorAll(".bases-kanban-card"),
-		).find(
-			(candidate): candidate is HTMLElement =>
-				candidate instanceof HTMLElement &&
-				candidate.getAttribute(CARD_ID_ATTR) === cardId,
+		return cardRects;
+	}
+
+	private animatePendingKeyboardCardMove(): void {
+		const beforeRects = this.pendingKeyboardCardMoveRects;
+		if (!beforeRects || !this.isKeyboardCardMoveAnimationReady) {
+			return;
+		}
+
+		this.clearPendingKeyboardCardMoveAnimation();
+		if (this.shouldReduceMotion()) {
+			return;
+		}
+
+		const afterRects = this.captureRenderedCardRects();
+		const transforms = getCardMoveAnimationTransforms(beforeRects, afterRects);
+		if (transforms.size === 0) {
+			return;
+		}
+
+		for (const cardEl of this.getRenderedCardElements()) {
+			const cardId = cardEl.getAttribute(CARD_ID_ATTR);
+			const transform = cardId ? transforms.get(cardId) : undefined;
+			if (!transform) {
+				continue;
+			}
+
+			cardEl.animate(
+				[
+					{
+						transform: `translate(${transform.translateX}px, ${transform.translateY}px)`,
+					},
+					{ transform: "translate(0, 0)" },
+				],
+				{
+					duration: KEYBOARD_CARD_MOVE_ANIMATION_DURATION_MS,
+					easing: KEYBOARD_CARD_MOVE_ANIMATION_EASING,
+				},
+			);
+		}
+	}
+
+	private clearPendingKeyboardCardMoveAnimation(): void {
+		this.pendingKeyboardCardMoveRects = null;
+		this.isKeyboardCardMoveAnimationReady = false;
+	}
+
+	private shouldReduceMotion(): boolean {
+		const window = this.containerEl.ownerDocument.defaultView;
+		return (
+			window?.matchMedia("(prefers-reduced-motion: reduce)").matches ?? false
+		);
+	}
+
+	private getRenderedCardElements(): HTMLElement[] {
+		const boardEl = this.boardEl;
+		if (!(boardEl instanceof HTMLElement)) {
+			return [];
+		}
+
+		return Array.from(boardEl.querySelectorAll(".bases-kanban-card")).filter(
+			(cardNode): cardNode is HTMLElement => cardNode instanceof HTMLElement,
+		);
+	}
+
+	private focusRenderedCardById(cardId: string): boolean {
+		const cardEl = this.getRenderedCardElements().find(
+			(candidate) => candidate.getAttribute(CARD_ID_ATTR) === cardId,
 		);
 		if (!cardEl) {
 			return false;
@@ -618,6 +760,39 @@ class BasesKanbanScaffoldView extends BasesView {
 
 		this.focusCardElement(cardEl);
 		return true;
+	}
+
+	private handleCardMouseFocus(event: MouseEvent, cardEl: HTMLElement): void {
+		const mousePoint = this.getMouseFocusPoint(event);
+		if (this.isMouseFocusSuppressed) {
+			if (
+				!shouldReleaseMouseFocusSuppression(
+					this.suppressedMouseFocusPoint,
+					mousePoint,
+					event.type,
+				)
+			) {
+				return;
+			}
+
+			this.isMouseFocusSuppressed = false;
+			this.suppressedMouseFocusPoint = null;
+		}
+
+		this.lastMouseFocusPoint = mousePoint;
+		this.focusCardElement(cardEl, { preventScroll: true });
+	}
+
+	private suppressMouseFocusUntilPointerMoves(): void {
+		this.isMouseFocusSuppressed = true;
+		this.suppressedMouseFocusPoint = this.lastMouseFocusPoint;
+	}
+
+	private getMouseFocusPoint(event: MouseEvent): MouseFocusPoint {
+		return {
+			clientX: event.clientX,
+			clientY: event.clientY,
+		};
 	}
 
 	private focusCardElement(
@@ -1247,7 +1422,8 @@ class BasesKanbanScaffoldView extends BasesView {
 		targetCardOrder: string[];
 		targetVisibleCardOrder: string[];
 		targetSlotIndex: number;
-	}): Promise<void> {
+		beforePersistCardOrders?: () => void;
+	}): Promise<boolean> {
 		const {
 			cardId,
 			sourceColumnId,
@@ -1257,10 +1433,11 @@ class BasesKanbanScaffoldView extends BasesView {
 			targetCardOrder,
 			targetVisibleCardOrder,
 			targetSlotIndex,
+			beforePersistCardOrders,
 		} = params;
 		const targetPropertyName = this.getWritableGroupingPropertyNameForMoves();
 		if (targetPropertyName === null) {
-			return;
+			return false;
 		}
 
 		const {
@@ -1278,13 +1455,15 @@ class BasesKanbanScaffoldView extends BasesView {
 			await this.persistCardGroupChange(cardId, targetPropertyName, targetColumnId);
 		} catch {
 			new Notice("Couldn't move that note to the new group.");
-			return;
+			return false;
 		}
 
+		beforePersistCardOrders?.();
 		writeCurrentCardOrders(this, groupedData, {
 			[sourceColumnId]: nextSourceCardOrder,
 			[targetColumnId]: nextTargetCardOrder,
 		});
+		return true;
 	}
 
 	private async applyCardColumnMove(

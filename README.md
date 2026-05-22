@@ -12,9 +12,31 @@ A minimal kanban layout for Obsidian Bases.
 - Drag-and-drop column reordering
 - Drag-and-drop card reordering within a column
 - Cross-column card moves when the board is grouped by a writable `note.*` property
+- Keyboard card focus with arrow keys
+- Keyboard card moving with `⌘` / `Ctrl` arrow shortcuts
+- Animated keyboard card moves that respect reduced-motion preferences
 - Persisted column order per grouping
 - Persisted manual card order per grouping (see note 2 below)
 - A small view option to hide empty properties on cards
+
+## Keyboard usage
+
+Cards can be focused with the mouse or with the keyboard. When a card is focused:
+
+- `↑` and `↓` move focus within the current column.
+- `←` and `→` move focus between columns, keeping the same approximate row where possible.
+- If no card is focused yet, the first arrow-key navigation starts at the first card in the first non-empty column.
+- Moving the mouse over a card focuses that card. After keyboard navigation or keyboard moving, stationary mouse hover is ignored until the pointer moves again.
+
+Card movement shortcuts use Obsidian's modifier key: `⌘` on macOS / `Ctrl` on Windows and Linux. Boundary shortcuts also use `⌥` on macOS / `Alt` on Windows and Linux.
+
+- `⌘+↑` / `Ctrl+↑` and `⌘+↓` / `Ctrl+↓` move the focused card one position within its column.
+- `⌘+←` / `Ctrl+←` and `⌘+→` / `Ctrl+→` move the focused card to the adjacent column.
+- `⌥+⌘+↑` / `Alt+Ctrl+↑` sends the focused card to the top of its column.
+- `⌥+⌘+↓` / `Alt+Ctrl+↓` sends the focused card to the bottom of its column.
+- `⌥+⌘+←` / `Alt+Ctrl+←` and `⌥+⌘+→` / `Alt+Ctrl+→` behave the same as the non-option column moves.
+
+Keyboard card movement is available when the board has an active Bases grouping. Cross-column keyboard moves require the grouping to be a writable `note.*` property because the plugin must update note frontmatter to move the card between groups.
 
 ## Design goals
 
@@ -50,7 +72,6 @@ Manual mode is reset as soon as the user changes the Bases sort again.
 ## Future work
 
 - Formula support for properties
-- Better keyboard navigation, including moving cards and focus mode (like Things for Mac)
 - Richer context menus for moving cards, opening notes, and similar actions
 - Better handling for date-typed properties, including daily note awareness and interaction
 - Smarter property type detection and cleaner formatting, ideally configurable from the view
