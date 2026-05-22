@@ -11,6 +11,7 @@ import type {
 	BasesEntry,
 	BasesEntryGroup,
 	BasesViewRegistration,
+	MenuItem,
 	Plugin,
 	QueryController,
 } from "obsidian";
@@ -23,6 +24,7 @@ import {
 	getGroupColumnId,
 	getOrderedEntriesForGroup,
 	getOrderedGroupsForCurrentGrouping,
+	moveCardBetweenColumns,
 	moveCardToBoundary,
 	moveCardToVisibleIndex,
 	writeCurrentCardOrder,
@@ -48,6 +50,9 @@ const COLUMN_DROP_SLOT_ACTIVE_CLASS = "bases-kanban-drop-slot--active";
 const DRAG_PREVIEW_CLASS = "bases-kanban-drag-preview";
 
 type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
+type MenuItemWithSubmenu = MenuItem & {
+	setSubmenu?: () => Menu;
+};
 
 export function getWritableGroupingPropertyName(
 	groupingKey: string | null,
@@ -182,10 +187,10 @@ class BasesKanbanScaffoldView extends BasesView {
 			headingEl.addEventListener("contextmenu", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				this.openColumnMenu(event, columnEl, columnTitle);
+				this.openColumnMenu(event, columnEl);
 			});
 			headingEl.addEventListener("keydown", (event) => {
-				this.handleColumnHeaderKeyDown(event, headingEl, columnEl, columnTitle);
+				this.handleColumnHeaderKeyDown(event, headingEl, columnEl);
 			});
 		}
 
@@ -399,7 +404,7 @@ class BasesKanbanScaffoldView extends BasesView {
 		const menu = new Menu();
 		menu.addItem((item) => {
 			item
-				.setTitle("Move to top")
+				.setTitle("Send to top")
 				.setIcon("arrow-up")
 				.setDisabled(cardIndex === 0)
 				.onClick(() => {
@@ -408,14 +413,110 @@ class BasesKanbanScaffoldView extends BasesView {
 		});
 		menu.addItem((item) => {
 			item
-				.setTitle("Move to bottom")
+				.setTitle("Send to bottom")
 				.setIcon("arrow-down")
 				.setDisabled(cardIndex === cardOrder.length - 1)
 				.onClick(() => {
 					this.applyCardBoundaryMove(group, cardId, "end");
 				});
 		});
+		const targetGroups = getOrderedGroupsForCurrentGrouping(
+			this,
+			this.data.groupedData,
+		).filter(
+			(targetGroup) => getGroupColumnId(targetGroup) !== getGroupColumnId(group),
+		);
+		if (
+			targetGroups.length > 0 &&
+			this.getWritableGroupingPropertyNameForMoves() !== null
+		) {
+			menu.addSeparator();
+			this.addCardColumnMoveMenu(menu, group, entry, targetGroups);
+		}
 		return menu;
+	}
+
+	private addCardColumnMoveMenu(
+		menu: Menu,
+		sourceGroup: BasesEntryGroup,
+		entry: BasesEntry,
+		targetGroups: BasesEntryGroup[],
+	): void {
+		menu.addItem((item) => {
+			const submenu = this.getMenuItemSubmenu(item);
+			item
+				.setTitle(submenu ? "Move to column" : "Move to column...")
+				.setIcon("columns-3");
+
+			if (submenu) {
+				this.addCardColumnMoveMenuItems(
+					submenu,
+					sourceGroup,
+					entry,
+					targetGroups,
+				);
+				return;
+			}
+
+			item.onClick((event) => {
+				this.openCardColumnMoveMenu(event, sourceGroup, entry, targetGroups);
+			});
+		});
+	}
+
+	private getMenuItemSubmenu(item: MenuItem): Menu | null {
+		const itemWithSubmenu: MenuItemWithSubmenu = item;
+		return typeof itemWithSubmenu.setSubmenu === "function"
+			? itemWithSubmenu.setSubmenu()
+			: null;
+	}
+
+	private openCardColumnMoveMenu(
+		event: MouseEvent | KeyboardEvent,
+		sourceGroup: BasesEntryGroup,
+		entry: BasesEntry,
+		targetGroups: BasesEntryGroup[],
+	): void {
+		const columnMenu = new Menu();
+		this.addCardColumnMoveMenuItems(
+			columnMenu,
+			sourceGroup,
+			entry,
+			targetGroups,
+		);
+
+		if (event instanceof MouseEvent) {
+			columnMenu.showAtMouseEvent(event);
+			return;
+		}
+
+		const targetEl = event.currentTarget;
+		if (targetEl instanceof HTMLElement) {
+			const rect = targetEl.getBoundingClientRect();
+			columnMenu.showAtPosition({
+				x: rect.left,
+				y: rect.bottom,
+				width: rect.width,
+			});
+			return;
+		}
+
+		columnMenu.showAtPosition({ x: 0, y: 0 });
+	}
+
+	private addCardColumnMoveMenuItems(
+		menu: Menu,
+		sourceGroup: BasesEntryGroup,
+		entry: BasesEntry,
+		targetGroups: BasesEntryGroup[],
+	): void {
+		for (const targetGroup of targetGroups) {
+			menu.addItem((item) => {
+				item.setTitle(getGroupTitle(targetGroup)).onClick(() => {
+					void this.applyCardColumnMove(sourceGroup, targetGroup, entry);
+				});
+			});
+		}
 	}
 
 	private applyCardBoundaryMove(
@@ -435,16 +536,14 @@ class BasesKanbanScaffoldView extends BasesView {
 	private openColumnMenu(
 		event: MouseEvent,
 		columnEl: HTMLElement,
-		columnTitle: string,
 	): void {
-		this.buildColumnMenu(columnEl, columnTitle)?.showAtMouseEvent(event);
+		this.buildColumnMenu(columnEl)?.showAtMouseEvent(event);
 	}
 
 	private handleColumnHeaderKeyDown(
 		event: KeyboardEvent,
 		headingEl: HTMLElement,
 		columnEl: HTMLElement,
-		columnTitle: string,
 	): void {
 		if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
 			return;
@@ -453,17 +552,14 @@ class BasesKanbanScaffoldView extends BasesView {
 		event.preventDefault();
 		event.stopPropagation();
 		const rect = headingEl.getBoundingClientRect();
-		this.buildColumnMenu(columnEl, columnTitle)?.showAtPosition({
+		this.buildColumnMenu(columnEl)?.showAtPosition({
 			x: rect.left,
 			y: rect.bottom,
 			width: rect.width,
 		});
 	}
 
-	private buildColumnMenu(
-		columnEl: HTMLElement,
-		columnTitle: string,
-	): Menu | null {
+	private buildColumnMenu(columnEl: HTMLElement): Menu | null {
 		const boardEl = this.boardEl;
 		if (!(boardEl instanceof HTMLElement)) {
 			return null;
@@ -483,7 +579,7 @@ class BasesKanbanScaffoldView extends BasesView {
 		const menu = new Menu();
 		menu.addItem((item) => {
 			item
-				.setTitle(`Move ${columnTitle} left`)
+				.setTitle("Send left")
 				.setIcon("arrow-left")
 				.setDisabled(!canMoveLeft)
 				.onClick(() => {
@@ -492,7 +588,7 @@ class BasesKanbanScaffoldView extends BasesView {
 		});
 		menu.addItem((item) => {
 			item
-				.setTitle(`Move ${columnTitle} right`)
+				.setTitle("Send right")
 				.setIcon("arrow-right")
 				.setDisabled(!canMoveRight)
 				.onClick(() => {
@@ -884,10 +980,11 @@ class BasesKanbanScaffoldView extends BasesView {
 			return;
 		}
 
-		const nextSourceCardOrder = sourceCardOrder.filter(
-			(currentCardId) => currentCardId !== cardId,
-		);
-		const nextTargetCardOrder = moveCardToVisibleIndex(
+		const {
+			sourceCardOrder: nextSourceCardOrder,
+			targetCardOrder: nextTargetCardOrder,
+		} = moveCardBetweenColumns(
+			sourceCardOrder,
 			targetCardOrder,
 			targetVisibleCardOrder,
 			cardId,
@@ -904,6 +1001,40 @@ class BasesKanbanScaffoldView extends BasesView {
 		writeCurrentCardOrders(this, groupedData, {
 			[sourceColumnId]: nextSourceCardOrder,
 			[targetColumnId]: nextTargetCardOrder,
+		});
+	}
+
+	private async applyCardColumnMove(
+		sourceGroup: BasesEntryGroup,
+		targetGroup: BasesEntryGroup,
+		entry: BasesEntry,
+	): Promise<void> {
+		const cardId = getCardId(entry);
+		const sourceColumnId = getGroupColumnId(sourceGroup);
+		const targetColumnId = getGroupColumnId(targetGroup);
+		if (sourceColumnId === targetColumnId) {
+			return;
+		}
+
+		const sourceCardOrder = getCardOrderForGroup(this, sourceGroup);
+		if (!sourceCardOrder.includes(cardId)) {
+			return;
+		}
+
+		const targetVisibleCardOrder = getOrderedEntriesForGroup(
+			this,
+			targetGroup,
+		).map((targetEntry) => getCardId(targetEntry));
+
+		await this.handleCrossColumnCardDrop({
+			cardId,
+			sourceColumnId,
+			targetColumnId,
+			groupedData: [...this.data.groupedData],
+			sourceCardOrder,
+			targetCardOrder: getCardOrderForGroup(this, targetGroup),
+			targetVisibleCardOrder,
+			targetSlotIndex: targetVisibleCardOrder.length,
 		});
 	}
 

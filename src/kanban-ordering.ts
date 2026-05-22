@@ -373,6 +373,29 @@ export function moveCardToVisibleIndex(
 	];
 }
 
+export function moveCardBetweenColumns(
+	sourceCardOrder: string[],
+	targetCardOrder: string[],
+	targetVisibleCardOrder: string[],
+	cardId: string,
+	targetVisibleIndex: number,
+): {
+	sourceCardOrder: string[];
+	targetCardOrder: string[];
+} {
+	return {
+		sourceCardOrder: sourceCardOrder.filter(
+			(currentCardId) => currentCardId !== cardId,
+		),
+		targetCardOrder: moveCardToVisibleIndex(
+			targetCardOrder,
+			targetVisibleCardOrder,
+			cardId,
+			targetVisibleIndex,
+		),
+	};
+}
+
 function createEmptyKanbanState(): KanbanState {
 	return {
 		columnOrders: {},

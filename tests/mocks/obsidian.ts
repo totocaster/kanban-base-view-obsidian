@@ -40,6 +40,10 @@ export class Menu extends Component {
 		return this;
 	}
 
+	addSeparator(): this {
+		return this;
+	}
+
 	showAtMouseEvent(): this {
 		return this;
 	}
@@ -64,6 +68,10 @@ export class MenuItem {
 
 	onClick(): this {
 		return this;
+	}
+
+	setSubmenu(): Menu {
+		return new Menu();
 	}
 }
 

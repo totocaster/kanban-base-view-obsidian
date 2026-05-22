@@ -12,6 +12,7 @@ import {
 	getGroupColumnId,
 	getOrderedEntriesForGroup,
 	getOrderedGroupsForCurrentGrouping,
+	moveCardBetweenColumns,
 	moveCardToBoundary,
 	moveCardToIndex,
 	moveCardToVisibleIndex,
@@ -389,6 +390,43 @@ describe("moveCardToVisibleIndex", () => {
 				0,
 			),
 		).toEqual(["Hidden/d.md", "Tasks/c.md", "Tasks/e.md"]);
+	});
+});
+
+describe("moveCardBetweenColumns", () => {
+	it("removes the card from the source column and appends it to the target column", () => {
+		expect(
+			moveCardBetweenColumns(
+				["Tasks/a.md", "Tasks/b.md"],
+				["Tasks/c.md"],
+				["Tasks/c.md"],
+				"Tasks/a.md",
+				1,
+			),
+		).toEqual({
+			sourceCardOrder: ["Tasks/b.md"],
+			targetCardOrder: ["Tasks/c.md", "Tasks/a.md"],
+		});
+	});
+
+	it("keeps hidden target cards while inserting after the last visible target card", () => {
+		expect(
+			moveCardBetweenColumns(
+				["Tasks/a.md", "Tasks/b.md"],
+				["Hidden/c.md", "Tasks/d.md", "Hidden/e.md"],
+				["Tasks/d.md"],
+				"Tasks/a.md",
+				1,
+			),
+		).toEqual({
+			sourceCardOrder: ["Tasks/b.md"],
+			targetCardOrder: [
+				"Hidden/c.md",
+				"Tasks/d.md",
+				"Tasks/a.md",
+				"Hidden/e.md",
+			],
+		});
 	});
 });
 
