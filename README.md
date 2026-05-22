@@ -72,7 +72,6 @@ Manual mode is reset as soon as the user changes the Bases sort again.
 ## Future work
 
 - Formula support for properties
-- Richer context menus for moving cards, opening notes, and similar actions
 - Better handling for date-typed properties, including daily note awareness and interaction
 - Smarter property type detection and cleaner formatting, ideally configurable from the view
 - Proper mobile validation; I have not tested it thoroughly yet, although `this.app.emulateMobile(true);` suggests the basic layout should be workable
