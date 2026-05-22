@@ -9,6 +9,7 @@ import {
 	createKanbanViewRegistration,
 	formatNoteCount,
 	getCardMoveAnimationTransforms,
+	getRenamedNotePath,
 	getWritableGroupingPropertyName,
 	getGroupTitle,
 	registerKanbanView,
@@ -46,6 +47,60 @@ describe("formatNoteCount", () => {
 
 	it("formats a plural note count", () => {
 		expect(formatNoteCount(3)).toBe("3 notes");
+	});
+});
+
+describe("getRenamedNotePath", () => {
+	it("renames a note in its current folder while preserving the extension", () => {
+		expect(
+			getRenamedNotePath(
+				{
+					extension: "md",
+					parent: { path: "Projects" },
+					path: "Projects/Old.md",
+				} as never,
+				"New",
+			),
+		).toBe("Projects/New.md");
+	});
+
+	it("does not duplicate the current extension when it is already present", () => {
+		expect(
+			getRenamedNotePath(
+				{
+					extension: "md",
+					parent: { path: "Projects" },
+					path: "Projects/Old.md",
+				} as never,
+				"New.md",
+			),
+		).toBe("Projects/New.md");
+	});
+
+	it("handles notes in the vault root", () => {
+		expect(
+			getRenamedNotePath(
+				{
+					extension: "md",
+					parent: { path: "/" },
+					path: "Old.md",
+				} as never,
+				"New",
+			),
+		).toBe("New.md");
+	});
+
+	it("rejects empty note names", () => {
+		expect(
+			getRenamedNotePath(
+				{
+					extension: "md",
+					parent: { path: "Projects" },
+					path: "Projects/Old.md",
+				} as never,
+				"  ",
+			),
+		).toBeNull();
 	});
 });
 

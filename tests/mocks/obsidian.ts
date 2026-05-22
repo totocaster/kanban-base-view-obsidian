@@ -66,12 +66,100 @@ export class MenuItem {
 		return this;
 	}
 
+	setWarning(): this {
+		return this;
+	}
+
 	onClick(): this {
 		return this;
 	}
 
 	setSubmenu(): Menu {
 		return new Menu();
+	}
+}
+
+export class Modal {
+	app: unknown;
+	contentEl = {
+		empty(): void {},
+	};
+
+	constructor(app: unknown) {
+		this.app = app;
+	}
+
+	open(): void {}
+
+	close(): void {}
+
+	onOpen(): void {}
+
+	onClose(): void {}
+
+	setTitle(): this {
+		return this;
+	}
+}
+
+class ButtonComponent {
+	setButtonText(): this {
+		return this;
+	}
+
+	setCta(): this {
+		return this;
+	}
+
+	onClick(): this {
+		return this;
+	}
+}
+
+export class TextComponent {
+	private value = "";
+
+	inputEl = {
+		addEventListener(): void {},
+		focus(): void {},
+		select(): void {},
+	};
+
+	getValue(): string {
+		return this.value;
+	}
+
+	setPlaceholder(): this {
+		return this;
+	}
+
+	setValue(value: string): this {
+		this.value = value;
+		return this;
+	}
+
+	onChange(): this {
+		return this;
+	}
+}
+
+export class Setting {
+	constructor(containerEl: unknown) {
+		void containerEl;
+	}
+
+	setName(): this {
+		return this;
+	}
+
+	addText(callback: (text: TextComponent) => unknown): this {
+		callback(new TextComponent());
+		return this;
+	}
+
+	addButton(callback: (button: ButtonComponent) => unknown): this {
+		callback(new ButtonComponent());
+		return this;
 	}
 }
 
@@ -111,4 +199,12 @@ export function parsePropertyId(propertyId: string): {
 		type,
 		name: nameParts.join("."),
 	};
+}
+
+export function normalizePath(path: string): string {
+	return path
+		.replace(/\\/g, "/")
+		.replace(/\/+/g, "/")
+		.replace(/^\//, "")
+		.replace(/\/$/, "");
 }

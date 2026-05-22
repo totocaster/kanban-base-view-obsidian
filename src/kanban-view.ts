@@ -3,17 +3,23 @@ import {
 	DateValue,
 	Keymap,
 	Menu,
+	Modal,
 	Notice,
+	normalizePath,
 	parsePropertyId,
 	setIcon,
+	Setting,
 } from "obsidian";
 import type {
+	App,
 	BasesEntry,
 	BasesEntryGroup,
 	BasesViewRegistration,
 	MenuItem,
 	Plugin,
 	QueryController,
+	TFile,
+	TextComponent,
 } from "obsidian";
 import {
 	clearCardOrders,
@@ -81,6 +87,7 @@ type CardPreviewCacheEntry = {
 	titleText: string;
 	text: string | null;
 };
+type RenameableNoteFile = Pick<TFile, "extension" | "parent" | "path">;
 export type CardMoveAnimationTransform = {
 	translateX: number;
 	translateY: number;
@@ -146,6 +153,24 @@ export function getGroupTitle(
 
 export function formatNoteCount(count: number): string {
 	return `${count} note${count === 1 ? "" : "s"}`;
+}
+
+export function getRenamedNotePath(
+	file: RenameableNoteFile,
+	rawName: string,
+): string | null {
+	const trimmedName = rawName.trim();
+	if (trimmedName.length === 0) {
+		return null;
+	}
+
+	const extension = file.extension.trim();
+	const extensionSuffix = extension.length > 0 ? `.${extension}` : "";
+	const newFileName = trimmedName.endsWith(extensionSuffix)
+		? trimmedName
+		: `${trimmedName}${extensionSuffix}`;
+	const parentPath = file.parent?.path === "/" ? "" : file.parent?.path ?? "";
+	return normalizePath(parentPath ? `${parentPath}/${newFileName}` : newFileName);
 }
 
 export function createKanbanViewRegistration(): BasesViewRegistration {
@@ -490,6 +515,14 @@ class BasesKanbanScaffoldView extends BasesView {
 			event.stopPropagation();
 			this.openEntry(event, entry);
 		});
+		cardEl.addEventListener("contextmenu", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			this.openCardMenu(event, group, entry, canReorderCards);
+		});
+		cardEl.addEventListener("keydown", (event) => {
+			this.handleCardMenuKeyDown(event, cardEl, group, entry, canReorderCards);
+		});
 		if (canReorderCards) {
 			cardEl.draggable = true;
 			cardEl.addEventListener("dragstart", (event) => {
@@ -497,14 +530,6 @@ class BasesKanbanScaffoldView extends BasesView {
 			});
 			cardEl.addEventListener("dragend", () => {
 				this.handleCardDragEnd();
-			});
-			cardEl.addEventListener("contextmenu", (event) => {
-				event.preventDefault();
-				event.stopPropagation();
-				this.openCardOrderMenu(event, group, entry);
-			});
-			cardEl.addEventListener("keydown", (event) => {
-				this.handleCardOrderKeyDown(event, cardEl, group, entry);
 			});
 		}
 		titleEl.draggable = false;
@@ -1089,20 +1114,22 @@ class BasesKanbanScaffoldView extends BasesView {
 		this.focusedCardEl?.classList.add(CARD_FOCUSED_CLASS);
 	}
 
-	// Card ordering menu actions
-	private openCardOrderMenu(
+	// Card menu actions
+	private openCardMenu(
 		event: MouseEvent,
 		group: BasesEntryGroup,
 		entry: BasesEntry,
+		canReorderCards: boolean,
 	): void {
-		this.buildCardOrderMenu(group, entry)?.showAtMouseEvent(event);
+		this.buildCardMenu(group, entry, canReorderCards).showAtMouseEvent(event);
 	}
 
-	private handleCardOrderKeyDown(
+	private handleCardMenuKeyDown(
 		event: KeyboardEvent,
 		targetEl: HTMLElement,
 		group: BasesEntryGroup,
 		entry: BasesEntry,
+		canReorderCards: boolean,
 	): void {
 		if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
 			return;
@@ -1111,25 +1138,41 @@ class BasesKanbanScaffoldView extends BasesView {
 		event.preventDefault();
 		event.stopPropagation();
 		const rect = targetEl.getBoundingClientRect();
-		this.buildCardOrderMenu(group, entry)?.showAtPosition({
+		this.buildCardMenu(group, entry, canReorderCards).showAtPosition({
 			x: rect.left,
 			y: rect.bottom,
 			width: rect.width,
 		});
 	}
 
-	private buildCardOrderMenu(
+	private buildCardMenu(
 		group: BasesEntryGroup,
 		entry: BasesEntry,
-	): Menu | null {
+		canReorderCards: boolean,
+	): Menu {
+		const menu = new Menu();
+		const addedReorderActions =
+			canReorderCards && this.addCardOrderMenuItems(menu, group, entry);
+		if (addedReorderActions) {
+			menu.addSeparator();
+		}
+
+		this.addCardFileMenuItems(menu, entry);
+		return menu;
+	}
+
+	private addCardOrderMenuItems(
+		menu: Menu,
+		group: BasesEntryGroup,
+		entry: BasesEntry,
+	): boolean {
 		const cardOrder = getCardOrderForGroup(this, group);
 		const cardId = getCardId(entry);
 		const cardIndex = cardOrder.indexOf(cardId);
 		if (cardIndex === -1) {
-			return null;
+			return false;
 		}
 
-		const menu = new Menu();
 		menu.addItem((item) => {
 			item
 				.setTitle("Send to top")
@@ -1161,7 +1204,40 @@ class BasesKanbanScaffoldView extends BasesView {
 			menu.addSeparator();
 			this.addCardColumnMoveMenu(menu, group, entry, targetGroups);
 		}
-		return menu;
+		return true;
+	}
+
+	private addCardFileMenuItems(menu: Menu, entry: BasesEntry): void {
+		menu.addItem((item) => {
+			item
+				.setTitle("Rename note")
+				.setIcon("pencil")
+				.onClick(() => {
+					new RenameNoteModal(this.app, entry.file).open();
+				});
+		});
+		menu.addItem((item) => {
+			item
+				.setTitle("Delete note")
+				.setIcon("trash-2")
+				.setWarning(true)
+				.onClick(() => {
+					void this.promptForCardDeletion(entry);
+				});
+		});
+	}
+
+	private async promptForCardDeletion(entry: BasesEntry): Promise<void> {
+		try {
+			const confirmed = await this.app.fileManager.promptForDeletion(entry.file);
+			if (!confirmed) {
+				return;
+			}
+
+			await this.app.fileManager.trashFile(entry.file);
+		} catch {
+			new Notice("Couldn't delete that note.");
+		}
 	}
 
 	private addCardColumnMoveMenu(
@@ -1880,5 +1956,86 @@ class BasesKanbanScaffoldView extends BasesView {
 		this.setActiveCardSlot(null);
 		this.draggedCardSourceColumnId = null;
 		this.draggedCardEl = null;
+	}
+}
+
+class RenameNoteModal extends Modal {
+	private noteName: string;
+	private textComponent: TextComponent | null = null;
+
+	constructor(app: App, private readonly file: TFile) {
+		super(app);
+		this.noteName = file.basename;
+	}
+
+	override onOpen(): void {
+		this.setTitle("Rename note");
+		this.contentEl.empty();
+
+		new Setting(this.contentEl).setName("Name").addText((text) => {
+			this.textComponent = text;
+			text
+				.setPlaceholder(this.file.basename)
+				.setValue(this.file.basename)
+				.onChange((value) => {
+					this.noteName = value;
+				});
+			text.inputEl.addEventListener("keydown", (event) => {
+				if (event.key !== "Enter") {
+					return;
+				}
+
+				event.preventDefault();
+				void this.renameNote();
+			});
+		});
+
+		new Setting(this.contentEl)
+			.addButton((button) => {
+				button.setButtonText("Cancel").onClick(() => {
+					this.close();
+				});
+			})
+			.addButton((button) => {
+				button
+					.setButtonText("Rename")
+					.setCta()
+					.onClick(() => {
+						void this.renameNote();
+					});
+			});
+
+		this.textComponent?.inputEl.focus();
+		this.textComponent?.inputEl.select();
+	}
+
+	override onClose(): void {
+		this.contentEl.empty();
+	}
+
+	private async renameNote(): Promise<void> {
+		const noteName = this.textComponent?.getValue() ?? this.noteName;
+		if (noteName.includes("/") || noteName.includes("\\")) {
+			new Notice("Note names can't include folder separators.");
+			return;
+		}
+
+		const newPath = getRenamedNotePath(this.file, noteName);
+		if (newPath === null) {
+			new Notice("Enter a note name.");
+			return;
+		}
+
+		if (newPath === this.file.path) {
+			this.close();
+			return;
+		}
+
+		try {
+			await this.app.fileManager.renameFile(this.file, newPath);
+			this.close();
+		} catch {
+			new Notice("Couldn't rename that note.");
+		}
 	}
 }
