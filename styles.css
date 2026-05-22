@@ -17,7 +17,7 @@
 	gap: 0;
 	overflow-x: auto;
 	overflow-y: hidden;
-	padding: var(--size-4-3) var(--size-4-4) var(--size-2-2);
+	padding: var(--size-4-3) 0 var(--size-2-2);
 	scrollbar-gutter: stable;
 	scrollbar-width: none;
 	-ms-overflow-style: none;
@@ -31,7 +31,7 @@
 	flex: 0 0 3px;
 	align-self: stretch;
 	min-height: 8rem;
-	margin: 0 var(--size-4-2);
+	margin: 0 var(--size-2-2);
 	border-radius: var(--radius-s);
 	background-color: transparent;
 	transition: background-color 120ms ease;
