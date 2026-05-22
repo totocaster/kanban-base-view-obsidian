@@ -2,7 +2,9 @@
 
 ![Better Kanban Bases View screenshot](.github/assets/bases-kanban-view-screenshot.png)
 
-A minimal kanban layout for Obsidian Bases.
+A focused Kanban view for Obsidian Bases with draggable cards, keyboard reordering, note previews, and saved layouts.
+
+Columns are built from the active Bases grouping, and cards show each note's title plus the properties already selected in Bases, including formula values. The view keeps Obsidian's existing Base controls for sorting, grouping, filtering, and property selection, while adding a board layout for planning and reviewing notes.
 
 ## Install
 
@@ -28,9 +30,12 @@ Requires Obsidian 1.10.2 or newer. The plugin uses the Bases view API and is not
 - Cards that render the note title plus the properties already selected in Bases
 - Formula properties selected in Bases render as card metadata with a formula icon
 - Optional small or large plain-text note previews below card properties
+- Add-note buttons for writable grouped columns
 - Drag-and-drop column reordering
 - Drag-and-drop card reordering within a column
 - Cross-column card moves when the board is grouped by a writable `note.*` property
+- Context menu actions for moving cards and columns
+- Card menu actions to rename or delete notes
 - Keyboard card focus with arrow keys
 - Keyboard card moving with `⌘` / `Ctrl` arrow shortcuts
 - Animated keyboard card moves that respect reduced-motion preferences
