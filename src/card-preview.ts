@@ -59,7 +59,7 @@ export function truncatePreviewText(text: string, characterLimit: number): strin
 		return normalizedText;
 	}
 
-	const truncatedText = normalizedText.slice(0, characterLimit).trimEnd();
+	const truncatedText = normalizedText.slice(0, characterLimit).trim();
 	const sentenceCut = findLastSentenceBoundary(truncatedText);
 	if (sentenceCut >= Math.floor(characterLimit * 0.55)) {
 		return `${truncatedText.slice(0, sentenceCut).trim()}...`;

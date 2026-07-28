@@ -189,6 +189,40 @@ describe("readKanbanState", () => {
 			},
 		});
 	});
+
+	it("ignores malformed order entries while normalizing persisted keys and values", () => {
+		expect(
+			readKanbanState({
+				get: () => ({
+					columnOrders: {
+						" note.status ": [" Todo ", 1, "Todo", "", "Done"],
+						"": ["Ignored"],
+						"note.priority": "not-an-array",
+					},
+					cardOrders: {
+						" note.status ": {
+							" Todo ": [" Tasks/a.md ", null, "Tasks/a.md", "Tasks/b.md"],
+							"": ["Ignored"],
+							Done: "not-an-array",
+						},
+						"": {
+							Todo: ["Ignored"],
+						},
+						"note.priority": "not-an-object",
+					},
+				}),
+			}),
+		).toEqual({
+			columnOrders: {
+				"note.status": ["Todo", "Done"],
+			},
+			cardOrders: {
+				"note.status": {
+					Todo: ["Tasks/a.md", "Tasks/b.md"],
+				},
+			},
+		});
+	});
 });
 
 describe("column settings", () => {

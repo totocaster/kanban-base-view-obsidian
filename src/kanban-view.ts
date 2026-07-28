@@ -121,6 +121,26 @@ type BasesViewRegistrar = Pick<
 	Plugin,
 	"registerBasesView" | "registerHoverLinkSource"
 >;
+
+type CrossWindowNode = EventTarget & Pick<Node, "instanceOf">;
+
+function supportsCrossWindowNodeCheck(
+	value: EventTarget | null,
+): value is CrossWindowNode {
+	return (
+		value !== null &&
+		"instanceOf" in value &&
+		typeof value.instanceOf === "function"
+	);
+}
+
+function isCrossWindowNodeInstance<T extends Node>(
+	value: EventTarget | null,
+	type: { new (): T },
+): value is T {
+	return supportsCrossWindowNodeCheck(value) && value.instanceOf(type);
+}
+
 type MenuItemWithSubmenu = MenuItem & {
 	setSubmenu?: () => Menu;
 };
@@ -832,7 +852,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 
 		const relatedTarget = event.relatedTarget;
 		if (
-			relatedTarget instanceof Element &&
+			isCrossWindowNodeInstance(relatedTarget, Element) &&
 			cardEl.contains(relatedTarget)
 		) {
 			return;
@@ -1282,8 +1302,8 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 	}
 
 	private getKeyboardEventCardId(event: KeyboardEvent): string | null {
-		const target = event.target;
-		if (target instanceof Element) {
+		const target = event.targetNode;
+		if (target?.instanceOf(Element)) {
 			const cardId = target
 				.closest<HTMLElement>(".bases-kanban-card")
 				?.getAttribute(CARD_ID_ATTR);
@@ -1297,7 +1317,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 
 	private getRenderedKeyboardBoard(): KanbanRenderedColumnOrder[] {
 		const boardEl = this.boardEl;
-		if (!(boardEl instanceof HTMLElement)) {
+		if (!boardEl?.instanceOf(HTMLElement)) {
 			return [];
 		}
 
@@ -1306,7 +1326,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 		)
 			.filter(
 				(columnStackNode): columnStackNode is HTMLElement =>
-					columnStackNode instanceof HTMLElement,
+					columnStackNode.instanceOf(HTMLElement),
 			)
 			.map((columnStackEl) => {
 				const columnEl = columnStackEl.querySelector<HTMLElement>(
@@ -1391,12 +1411,12 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 
 	private getRenderedCardElements(): HTMLElement[] {
 		const boardEl = this.boardEl;
-		if (!(boardEl instanceof HTMLElement)) {
+		if (!boardEl?.instanceOf(HTMLElement)) {
 			return [];
 		}
 
 		return Array.from(boardEl.querySelectorAll(".bases-kanban-card")).filter(
-			(cardNode): cardNode is HTMLElement => cardNode instanceof HTMLElement,
+			(cardNode): cardNode is HTMLElement => cardNode.instanceOf(HTMLElement),
 		);
 	}
 
@@ -1644,13 +1664,13 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 			targetGroups,
 		);
 
-		if (event instanceof MouseEvent) {
+		if (event.instanceOf(MouseEvent)) {
 			columnMenu.showAtMouseEvent(event);
 			return;
 		}
 
 		const targetEl = event.currentTarget;
-		if (targetEl instanceof HTMLElement) {
+		if (isCrossWindowNodeInstance(targetEl, HTMLElement)) {
 			const rect = targetEl.getBoundingClientRect();
 			columnMenu.showAtPosition({
 				x: rect.left,
@@ -1725,7 +1745,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 		columnTitle: string,
 	): Menu | null {
 		const boardEl = this.boardEl;
-		if (!(boardEl instanceof HTMLElement)) {
+		if (!boardEl?.instanceOf(HTMLElement)) {
 			return null;
 		}
 
@@ -1821,13 +1841,13 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 		const colorMenu = new Menu();
 		this.addColumnColorMenuItems(colorMenu, columnId, currentColor);
 
-		if (event instanceof MouseEvent) {
+		if (event.instanceOf(MouseEvent)) {
 			colorMenu.showAtMouseEvent(event);
 			return;
 		}
 
 		const targetEl = event.currentTarget;
-		if (targetEl instanceof HTMLElement) {
+		if (isCrossWindowNodeInstance(targetEl, HTMLElement)) {
 			const rect = targetEl.getBoundingClientRect();
 			colorMenu.showAtPosition({
 				x: rect.left,
@@ -2114,7 +2134,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 		)
 			.filter(
 				(columnStackNode): columnStackNode is HTMLElement =>
-					columnStackNode instanceof HTMLElement,
+					columnStackNode.instanceOf(HTMLElement),
 			)
 			.map((columnStackEl) => columnStackEl.getAttribute(COLUMN_ID_ATTR))
 			.filter((columnId): columnId is string => columnId !== null);
@@ -2137,7 +2157,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 		const slots = Array.from(
 			boardEl.querySelectorAll(".bases-kanban-column-drop-slot"),
 		).filter(
-			(slotNode): slotNode is HTMLElement => slotNode instanceof HTMLElement,
+			(slotNode): slotNode is HTMLElement => slotNode.instanceOf(HTMLElement),
 		);
 
 		let nearestSlot: HTMLElement | null = null;
@@ -2171,7 +2191,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 		previewClassName: string,
 	): HTMLElement {
 		const previewEl = sourceEl.cloneNode(true);
-		if (!(previewEl instanceof HTMLElement)) {
+		if (!previewEl.instanceOf(HTMLElement)) {
 			return sourceEl;
 		}
 
@@ -2180,7 +2200,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 		previewEl.style.width = `${sourceEl.getBoundingClientRect().width}px`;
 
 		this.containerEl.ownerDocument.body.appendChild(previewEl);
-		requestAnimationFrame(() => previewEl.remove());
+		window.requestAnimationFrame(() => previewEl.remove());
 		return previewEl;
 	}
 
@@ -2383,7 +2403,8 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 			),
 		)
 			.filter(
-				(cardNode): cardNode is HTMLElement => cardNode instanceof HTMLElement,
+				(cardNode): cardNode is HTMLElement =>
+					cardNode.instanceOf(HTMLElement),
 			)
 			.map((cardEl) => cardEl.getAttribute(CARD_ID_ATTR))
 			.filter((cardId): cardId is string => cardId !== null);
@@ -2396,7 +2417,7 @@ class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 		const slots = Array.from(
 			cardsEl.querySelectorAll(".bases-kanban-card-drop-slot"),
 		).filter(
-			(slotNode): slotNode is HTMLElement => slotNode instanceof HTMLElement,
+			(slotNode): slotNode is HTMLElement => slotNode.instanceOf(HTMLElement),
 		);
 
 		let nearestSlot: HTMLElement | null = null;

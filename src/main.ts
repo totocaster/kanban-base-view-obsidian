@@ -1,5 +1,5 @@
 import { Plugin, PluginSettingTab, Setting } from "obsidian";
-import type { App } from "obsidian";
+import type { App, SettingDefinitionItem } from "obsidian";
 import {
 	DEFAULT_KANBAN_GLOBAL_SETTINGS,
 	normalizeKanbanGlobalSettings,
@@ -70,6 +70,61 @@ class KanbanSettingTab extends PluginSettingTab {
 		private readonly plugin: BasesKanbanViewPlugin,
 	) {
 		super(app, plugin);
+	}
+
+	override getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				name: "Note hover previews",
+				desc: "Show the native page preview when hovering over a kanban card.",
+				control: {
+					type: "toggle",
+					key: "showCardHoverPreviews",
+					defaultValue:
+						DEFAULT_KANBAN_GLOBAL_SETTINGS.showCardHoverPreviews,
+				},
+			},
+			{
+				name: "Date display",
+				desc: "Choose how date properties appear on every kanban board.",
+				control: {
+					type: "dropdown",
+					key: "dateDisplayMode",
+					defaultValue: DEFAULT_KANBAN_GLOBAL_SETTINGS.dateDisplayMode,
+					options: {
+						exact: "Exact dates",
+						relative: "Relative dates",
+					},
+				},
+			},
+		];
+	}
+
+	override getControlValue(key: string): unknown {
+		const settings = this.plugin.getSettings();
+		switch (key) {
+			case "showCardHoverPreviews":
+				return settings.showCardHoverPreviews;
+			case "dateDisplayMode":
+				return settings.dateDisplayMode;
+			default:
+				return undefined;
+		}
+	}
+
+	override async setControlValue(key: string, value: unknown): Promise<void> {
+		switch (key) {
+			case "showCardHoverPreviews":
+				await this.plugin.updateSettings({
+					showCardHoverPreviews: value === true,
+				});
+				break;
+			case "dateDisplayMode":
+				await this.plugin.updateSettings({
+					dateDisplayMode: value === "relative" ? "relative" : "exact",
+				});
+				break;
+		}
 	}
 
 	override display(): void {

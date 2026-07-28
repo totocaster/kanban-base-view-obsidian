@@ -103,4 +103,8 @@ describe("truncatePreviewText", () => {
 			),
 		).toBe("Preview text with several words and...");
 	});
+
+	it("removes boundary whitespace without changing the truncated content", () => {
+		expect(truncatePreviewText("First second third", 6)).toBe("First...");
+	});
 });

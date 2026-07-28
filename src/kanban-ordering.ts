@@ -834,16 +834,17 @@ function readColumnOrders(value: unknown): Record<string, string[]> {
 		return {};
 	}
 
-	return Object.fromEntries(
-		Object.entries(value).flatMap(([groupingKey, columnOrder]) => {
-			const normalizedGroupingKey = groupingKey.trim();
-			if (normalizedGroupingKey.length === 0 || !Array.isArray(columnOrder)) {
-				return [];
-			}
+	const columnOrders: Record<string, string[]> = {};
+	for (const [groupingKey, columnOrder] of Object.entries(value)) {
+		const normalizedGroupingKey = groupingKey.trim();
+		if (normalizedGroupingKey.length === 0 || !Array.isArray(columnOrder)) {
+			continue;
+		}
 
-			return [[normalizedGroupingKey, getUniqueStrings(columnOrder)]];
-		}),
-	);
+		columnOrders[normalizedGroupingKey] = getUniqueStrings(columnOrder);
+	}
+
+	return columnOrders;
 }
 
 function readCardOrders(
@@ -853,29 +854,30 @@ function readCardOrders(
 		return {};
 	}
 
-	return Object.fromEntries(
-		Object.entries(value).flatMap(([groupingKey, groupedCardOrders]) => {
-			const normalizedGroupingKey = groupingKey.trim();
-			if (
-				normalizedGroupingKey.length === 0 ||
-				!isRecord(groupedCardOrders)
-			) {
-				return [];
+	const cardOrders: Record<string, Record<string, string[]>> = {};
+	for (const [groupingKey, groupedCardOrders] of Object.entries(value)) {
+		const normalizedGroupingKey = groupingKey.trim();
+		if (
+			normalizedGroupingKey.length === 0 ||
+			!isRecord(groupedCardOrders)
+		) {
+			continue;
+		}
+
+		const normalizedCardOrders: Record<string, string[]> = {};
+		for (const [columnId, cardOrder] of Object.entries(groupedCardOrders)) {
+			const normalizedColumnId = columnId.trim();
+			if (normalizedColumnId.length === 0 || !Array.isArray(cardOrder)) {
+				continue;
 			}
 
-			const normalizedCardOrders = Object.fromEntries(
-				Object.entries(groupedCardOrders).flatMap(([columnId, cardOrder]) => {
-					const normalizedColumnId = columnId.trim();
-					if (normalizedColumnId.length === 0 || !Array.isArray(cardOrder)) {
-						return [];
-					}
+			normalizedCardOrders[normalizedColumnId] = getUniqueStrings(cardOrder);
+		}
 
-					return [[normalizedColumnId, getUniqueStrings(cardOrder)]];
-				}),
-			);
-			return [[normalizedGroupingKey, normalizedCardOrders]];
-		}),
-	);
+		cardOrders[normalizedGroupingKey] = normalizedCardOrders;
+	}
+
+	return cardOrders;
 }
 
 function getUniqueStrings(items: unknown[]): string[] {
