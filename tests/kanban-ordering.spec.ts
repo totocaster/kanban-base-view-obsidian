@@ -7,6 +7,7 @@ import {
 	KANBAN_STATE_KEY,
 	getCardId,
 	getCardOrderForGroup,
+	getCurrentColumnSettings,
 	getCurrentSortKey,
 	getCurrentGroupingKey,
 	getGroupColumnId,
@@ -23,9 +24,12 @@ import {
 	moveColumnByOffset,
 	moveColumnToIndex,
 	readKanbanState,
+	readColumnSettings,
+	writeColumnSettings,
 	writeColumnOrder,
 	writeCurrentCardOrder,
 	writeCurrentCardOrders,
+	writeCurrentColumnSettings,
 	writeCurrentColumnOrder,
 } from "../src/kanban-ordering";
 
@@ -184,6 +188,161 @@ describe("readKanbanState", () => {
 				},
 			},
 		});
+	});
+});
+
+describe("column settings", () => {
+	it("reads settings scoped to a grouping and column", () => {
+		const store = createKanbanViewStore({
+			kanbanState: {
+				columnSettings: {
+					"note.status": {
+						Doing: {
+							wipLimit: 3,
+							color: "orange",
+						},
+					},
+				},
+			},
+		});
+
+		expect(
+			readColumnSettings(store.view.config, "note.status", "Doing"),
+		).toEqual({
+			wipLimit: 3,
+			color: "orange",
+		});
+		expect(getCurrentColumnSettings(store.view, "Doing")).toEqual({
+			wipLimit: 3,
+			color: "orange",
+		});
+		expect(getCurrentColumnSettings(store.view, "Done")).toEqual({
+			wipLimit: null,
+			color: null,
+		});
+	});
+
+	it("ignores invalid persisted limits and colors", () => {
+		const store = createKanbanViewStore({
+			kanbanState: {
+				columnSettings: {
+					"note.status": {
+						Doing: {
+							wipLimit: 0,
+							color: "chartreuse",
+						},
+					},
+				},
+			},
+		});
+
+		expect(getCurrentColumnSettings(store.view, "Doing")).toEqual({
+			wipLimit: null,
+			color: null,
+		});
+	});
+
+	it("writes a column setting without disturbing other saved state", () => {
+		const store = createKanbanViewStore({
+			kanbanState: {
+				probeUnknown: { keepMe: true },
+				columnOrders: {
+					"note.status": ["Doing", "Done"],
+				},
+				cardOrders: {
+					"note.status": {
+						Doing: ["Tasks/a.md"],
+					},
+				},
+				columnSettings: {
+					"note.priority": {
+						High: {
+							color: "red",
+						},
+					},
+					"note.status": {
+						Doing: {
+							futureSetting: true,
+							color: "yellow",
+						},
+					},
+				},
+			},
+		});
+
+		expect(
+			writeCurrentColumnSettings(store.view, "Doing", {
+				wipLimit: 2,
+				color: "blue",
+			}),
+		).toBe(true);
+		expect(store.readState()).toEqual({
+			probeUnknown: { keepMe: true },
+			columnOrders: {
+				"note.status": ["Doing", "Done"],
+			},
+			cardOrders: {
+				"note.status": {
+					Doing: ["Tasks/a.md"],
+				},
+			},
+			columnSettings: {
+				"note.priority": {
+					High: {
+						color: "red",
+					},
+				},
+				"note.status": {
+					Doing: {
+						futureSetting: true,
+						wipLimit: 2,
+						color: "blue",
+					},
+				},
+			},
+		});
+	});
+
+	it("removes empty column settings and their empty grouping map", () => {
+		const store = createKanbanViewStore({
+			kanbanState: {
+				columnOrders: {
+					"note.status": ["Doing"],
+				},
+				columnSettings: {
+					"note.status": {
+						Doing: {
+							wipLimit: 2,
+							color: "blue",
+						},
+					},
+				},
+			},
+		});
+
+		expect(
+			writeColumnSettings(store.view.config, "note.status", "Doing", {
+				wipLimit: null,
+				color: null,
+			}),
+		).toBe(true);
+		expect(store.readState()).toEqual({
+			columnOrders: {
+				"note.status": ["Doing"],
+			},
+		});
+	});
+
+	it("does not write current settings without an active grouping", () => {
+		const store = createKanbanViewStore({ groupByProperty: null });
+
+		expect(
+			writeCurrentColumnSettings(store.view, "Doing", {
+				wipLimit: 2,
+				color: "blue",
+			}),
+		).toBe(false);
+		expect(store.view.config.set).not.toHaveBeenCalled();
 	});
 });
 

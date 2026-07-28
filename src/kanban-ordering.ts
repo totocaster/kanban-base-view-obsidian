@@ -7,9 +7,26 @@ import {
 export const KANBAN_STATE_KEY = "kanbanState";
 export const KANBAN_NULL_COLUMN_ID = "__kanban_null__";
 export const KANBAN_EMPTY_COLUMN_ID = "__kanban_empty__";
+export const KANBAN_COLUMN_COLORS = [
+	"gray",
+	"red",
+	"orange",
+	"yellow",
+	"green",
+	"cyan",
+	"blue",
+	"purple",
+	"pink",
+] as const;
 
 type KanbanStateReader = Pick<BasesViewConfig, "get">;
 type KanbanStateWriter = Pick<BasesViewConfig, "get" | "set">;
+
+export type KanbanColumnColor = (typeof KANBAN_COLUMN_COLORS)[number];
+export type KanbanColumnSettings = {
+	wipLimit: number | null;
+	color: KanbanColumnColor | null;
+};
 
 export type KanbanState = {
 	columnOrders: Record<string, string[]>;
@@ -75,6 +92,138 @@ export function readKanbanState(config: KanbanStateReader): KanbanState {
 		columnOrders: readColumnOrders(rawValue.columnOrders),
 		cardOrders: readCardOrders(rawValue.cardOrders),
 	};
+}
+
+export function getCurrentColumnSettings(
+	view: KanbanOrderingView,
+	columnId: string,
+): KanbanColumnSettings {
+	const groupingKey = getCurrentGroupingKey(view);
+	if (groupingKey === null) {
+		return createEmptyColumnSettings();
+	}
+
+	return readColumnSettings(view.config, groupingKey, columnId);
+}
+
+export function readColumnSettings(
+	config: KanbanStateReader,
+	groupingKey: string,
+	columnId: string,
+): KanbanColumnSettings {
+	const normalizedGroupingKey = groupingKey.trim();
+	const normalizedColumnId = columnId.trim();
+	if (
+		normalizedGroupingKey.length === 0 ||
+		normalizedColumnId.length === 0
+	) {
+		return createEmptyColumnSettings();
+	}
+
+	const rawStateValue = config.get(KANBAN_STATE_KEY);
+	if (!isRecord(rawStateValue) || !isRecord(rawStateValue.columnSettings)) {
+		return createEmptyColumnSettings();
+	}
+
+	const groupingSettings =
+		rawStateValue.columnSettings[normalizedGroupingKey];
+	if (!isRecord(groupingSettings)) {
+		return createEmptyColumnSettings();
+	}
+
+	return normalizeColumnSettings(groupingSettings[normalizedColumnId]);
+}
+
+export function writeCurrentColumnSettings(
+	view: KanbanOrderingView,
+	columnId: string,
+	settings: KanbanColumnSettings,
+): boolean {
+	const groupingKey = getCurrentGroupingKey(view);
+	if (groupingKey === null) {
+		return false;
+	}
+
+	return writeColumnSettings(view.config, groupingKey, columnId, settings);
+}
+
+export function writeColumnSettings(
+	config: KanbanStateWriter,
+	groupingKey: string,
+	columnId: string,
+	settings: KanbanColumnSettings,
+): boolean {
+	const normalizedGroupingKey = groupingKey.trim();
+	const normalizedColumnId = columnId.trim();
+	if (
+		normalizedGroupingKey.length === 0 ||
+		normalizedColumnId.length === 0
+	) {
+		return false;
+	}
+
+	const nextSettings = normalizeColumnSettings(settings);
+	const currentSettings = readColumnSettings(
+		config,
+		normalizedGroupingKey,
+		normalizedColumnId,
+	);
+	if (hasSameColumnSettings(currentSettings, nextSettings)) {
+		return false;
+	}
+
+	const rawStateValue = config.get(KANBAN_STATE_KEY);
+	const rawState = isRecord(rawStateValue) ? rawStateValue : {};
+	const rawColumnSettings = isRecord(rawState.columnSettings)
+		? rawState.columnSettings
+		: {};
+	const rawGroupingSettings = isRecord(
+		rawColumnSettings[normalizedGroupingKey],
+	)
+		? rawColumnSettings[normalizedGroupingKey]
+		: {};
+	const rawCurrentSettings = isRecord(
+		rawGroupingSettings[normalizedColumnId],
+	)
+		? rawGroupingSettings[normalizedColumnId]
+		: {};
+	const nextCurrentSettings: Record<string, unknown> = {
+		...rawCurrentSettings,
+	};
+	delete nextCurrentSettings.wipLimit;
+	delete nextCurrentSettings.color;
+	if (nextSettings.wipLimit !== null) {
+		nextCurrentSettings.wipLimit = nextSettings.wipLimit;
+	}
+	if (nextSettings.color !== null) {
+		nextCurrentSettings.color = nextSettings.color;
+	}
+
+	const nextGroupingSettings = { ...rawGroupingSettings };
+	if (Object.keys(nextCurrentSettings).length === 0) {
+		delete nextGroupingSettings[normalizedColumnId];
+	} else {
+		nextGroupingSettings[normalizedColumnId] = nextCurrentSettings;
+	}
+
+	const nextColumnSettings = { ...rawColumnSettings };
+	if (Object.keys(nextGroupingSettings).length === 0) {
+		delete nextColumnSettings[normalizedGroupingKey];
+	} else {
+		nextColumnSettings[normalizedGroupingKey] = nextGroupingSettings;
+	}
+
+	const nextState: Record<string, unknown> = {
+		...rawState,
+	};
+	if (Object.keys(nextColumnSettings).length === 0) {
+		delete nextState.columnSettings;
+	} else {
+		nextState.columnSettings = nextColumnSettings;
+	}
+
+	config.set(KANBAN_STATE_KEY, nextState);
+	return true;
 }
 
 export function writeColumnOrder(
@@ -551,6 +700,40 @@ function createEmptyKanbanState(): KanbanState {
 		columnOrders: {},
 		cardOrders: {},
 	};
+}
+
+function createEmptyColumnSettings(): KanbanColumnSettings {
+	return {
+		wipLimit: null,
+		color: null,
+	};
+}
+
+function normalizeColumnSettings(value: unknown): KanbanColumnSettings {
+	if (!isRecord(value)) {
+		return createEmptyColumnSettings();
+	}
+
+	const wipLimit =
+		typeof value.wipLimit === "number" &&
+		Number.isSafeInteger(value.wipLimit) &&
+		value.wipLimit > 0
+			? value.wipLimit
+			: null;
+	const color =
+		typeof value.color === "string" &&
+		KANBAN_COLUMN_COLORS.some((candidate) => candidate === value.color)
+			? (value.color as KanbanColumnColor)
+			: null;
+
+	return { wipLimit, color };
+}
+
+function hasSameColumnSettings(
+	left: KanbanColumnSettings,
+	right: KanbanColumnSettings,
+): boolean {
+	return left.wipLimit === right.wipLimit && left.color === right.color;
 }
 
 function getKeyboardCardLocation(

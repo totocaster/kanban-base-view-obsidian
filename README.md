@@ -30,6 +30,10 @@ Requires Obsidian 1.10.2 or newer. The plugin uses the Bases view API and is not
 - Cards that render the note title plus the properties already selected in Bases
 - Formula properties selected in Bases render as card metadata with a formula icon
 - Optional small or large plain-text note previews below card properties
+- Optional native page previews when hovering anywhere on a card
+- Exact or relative date display with overdue, today, and tomorrow states
+- Per-column soft WIP limits with a visible over-limit warning
+- Optional semantic accent colors stored per column and grouping
 - Add-note buttons for writable grouped columns
 - Drag-and-drop column reordering
 - Drag-and-drop card reordering within a column
@@ -65,6 +69,16 @@ Keyboard card movement is available when the board has an active Bases grouping.
 ## Card previews
 
 Card previews can be set to `None`, `Small`, or `Large` from the view options. Preview text is derived from the note body, skips frontmatter and common Markdown noise, and is truncated to keep cards compact.
+
+Native page previews can also appear when the pointer rests over a card. This behavior is controlled globally from **Settings > Better Kanban Bases View > Note hover previews** and requires Obsidian's Page preview core plugin. Card previews do not require `⌘` / `Ctrl` by default; that behavior can still be overridden from Obsidian's Page preview settings.
+
+## Date display
+
+Date properties can use exact or relative text across every kanban board. Choose the global mode from **Settings > Better Kanban Bases View > Date display**. Relative dates retain the exact value in a tooltip, while workflow-oriented date properties such as `due`, `deadline`, and `scheduled` show overdue, today, and tomorrow states.
+
+## Column settings
+
+Use the faint ellipsis beside a column's note count to set a soft WIP limit or choose an accent color. WIP limits never block card moves: the count and column border show a warning only after the limit is exceeded. These settings are saved per Base view grouping, so the same group value can be configured differently on boards grouped by different properties.
 
 ## Formula properties
 
@@ -144,7 +158,7 @@ Manual mode is reset as soon as the user changes the Bases sort again.
 
 ## Future work
 
-- Better handling for date-typed properties, including daily note awareness and interaction
+- Daily note awareness and interaction for date-typed properties
 - Smarter property type detection and cleaner formatting, ideally configurable from the view
 - Proper mobile validation; I have not tested it thoroughly yet, although `this.app.emulateMobile(true);` suggests the basic layout should be workable
 

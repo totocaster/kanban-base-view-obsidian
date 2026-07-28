@@ -30,6 +30,8 @@ export class RenderContext {}
 
 export function setIcon(): void {}
 
+export function setTooltip(): void {}
+
 export class Menu extends Component {
 	static forEvent(): Menu {
 		return new Menu();
@@ -187,6 +189,10 @@ export class DateValue extends Value {
 
 	toString(): string {
 		return "2026-04-24";
+	}
+
+	relative(): string {
+		return "in 2 months";
 	}
 }
 

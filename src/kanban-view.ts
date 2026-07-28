@@ -8,13 +8,17 @@ import {
 	normalizePath,
 	parsePropertyId,
 	setIcon,
+	setTooltip,
 	Setting,
 } from "obsidian";
 import type {
 	App,
 	BasesEntry,
 	BasesEntryGroup,
+	BasesPropertyId,
 	BasesViewRegistration,
+	HoverParent,
+	HoverPopover,
 	MenuItem,
 	Plugin,
 	QueryController,
@@ -25,6 +29,7 @@ import {
 	clearCardOrders,
 	getCardId,
 	getCardOrderForGroup,
+	getCurrentColumnSettings,
 	getCurrentSortKey,
 	getCurrentGroupingKey,
 	getKeyboardArrowDirection,
@@ -43,9 +48,13 @@ import {
 	writeCurrentCardOrders,
 	moveColumnByOffset,
 	moveColumnToIndex,
+	writeCurrentColumnSettings,
 	writeCurrentColumnOrder,
+	KANBAN_COLUMN_COLORS,
 	KANBAN_EMPTY_COLUMN_ID,
 	KANBAN_NULL_COLUMN_ID,
+	type KanbanColumnColor,
+	type KanbanColumnSettings,
 } from "./kanban-ordering";
 import { getCardPropertyItems, hasCardPropertyValue } from "./card-properties";
 import {
@@ -57,7 +66,28 @@ import {
 export const KANBAN_VIEW_TYPE = "kanban";
 export const KANBAN_VIEW_NAME = "Kanban";
 export const KANBAN_VIEW_ICON = "lucide-columns-3";
+export const KANBAN_HOVER_SOURCE = "bases-kanban-view-ttvl";
+export const KANBAN_HOVER_SOURCE_NAME = "Better Kanban Bases View";
 export const EMPTY_GROUP_TITLE = "Ungrouped";
+export type KanbanDateDisplayMode = "exact" | "relative";
+export type KanbanDateStatus = "overdue" | "today" | "tomorrow";
+export type KanbanGlobalSettings = {
+	showCardHoverPreviews: boolean;
+	dateDisplayMode: KanbanDateDisplayMode;
+};
+export type KanbanSettingsSource = {
+	getSettings: () => Readonly<KanbanGlobalSettings>;
+	subscribe: (listener: () => void) => () => void;
+};
+export type KanbanDatePresentation = {
+	text: string;
+	exactText: string;
+	status: KanbanDateStatus | null;
+};
+export const DEFAULT_KANBAN_GLOBAL_SETTINGS: KanbanGlobalSettings = {
+	showCardHoverPreviews: true,
+	dateDisplayMode: "exact",
+};
 const KANBAN_BOARD_LABEL = "Kanban board";
 const SHOW_EMPTY_PROPERTIES_KEY = "showEmptyProperties";
 const CARD_PREVIEW_KEY = "contentPreview";
@@ -70,9 +100,27 @@ const COLUMN_DROP_SLOT_ACTIVE_CLASS = "bases-kanban-drop-slot--active";
 const DRAG_PREVIEW_CLASS = "bases-kanban-drag-preview";
 const KEYBOARD_CARD_MOVE_ANIMATION_DURATION_MS = 160;
 const KEYBOARD_CARD_MOVE_ANIMATION_EASING = "cubic-bezier(0.2, 0, 0, 1)";
+const KANBAN_COLUMN_COLOR_LABELS: Record<KanbanColumnColor, string> = {
+	gray: "Gray",
+	red: "Red",
+	orange: "Orange",
+	yellow: "Yellow",
+	green: "Green",
+	cyan: "Cyan",
+	blue: "Blue",
+	purple: "Purple",
+	pink: "Pink",
+};
+const DEFAULT_KANBAN_SETTINGS_SOURCE: KanbanSettingsSource = {
+	getSettings: () => DEFAULT_KANBAN_GLOBAL_SETTINGS,
+	subscribe: () => () => undefined,
+};
 let nextBoardLabelId = 0;
 
-type BasesViewRegistrar = Pick<Plugin, "registerBasesView">;
+type BasesViewRegistrar = Pick<
+	Plugin,
+	"registerBasesView" | "registerHoverLinkSource"
+>;
 type MenuItemWithSubmenu = MenuItem & {
 	setSubmenu?: () => Menu;
 };
@@ -96,6 +144,104 @@ export type MouseFocusPoint = {
 	clientX: number;
 	clientY: number;
 };
+
+export function normalizeKanbanGlobalSettings(
+	value: unknown,
+): KanbanGlobalSettings {
+	const settings = isRecord(value) ? value : {};
+	return {
+		showCardHoverPreviews:
+			typeof settings.showCardHoverPreviews === "boolean"
+				? settings.showCardHoverPreviews
+				: DEFAULT_KANBAN_GLOBAL_SETTINGS.showCardHoverPreviews,
+		dateDisplayMode:
+			settings.dateDisplayMode === "relative" ? "relative" : "exact",
+	};
+}
+
+export function getKanbanDatePresentation(
+	value: Pick<DateValue, "relative" | "toString">,
+	propertyId: BasesPropertyId,
+	mode: KanbanDateDisplayMode,
+	currentDate = new Date(),
+): KanbanDatePresentation {
+	const exactText = value.toString();
+	const relativeText = value.relative().trim();
+	return {
+		text:
+			mode === "relative" && relativeText.length > 0
+				? relativeText
+				: exactText,
+		exactText,
+		status: getKanbanDateStatus(propertyId, exactText, currentDate),
+	};
+}
+
+export function getKanbanDateStatus(
+	propertyId: BasesPropertyId,
+	exactText: string,
+	currentDate = new Date(),
+): KanbanDateStatus | null {
+	if (!isActionableDateProperty(propertyId)) {
+		return null;
+	}
+
+	const dateKey = getIsoDateKey(exactText);
+	if (dateKey === null) {
+		return null;
+	}
+
+	const todayKey = getLocalDateKey(currentDate);
+	if (dateKey < todayKey) {
+		return "overdue";
+	}
+	if (dateKey === todayKey) {
+		return "today";
+	}
+
+	const tomorrow = new Date(
+		currentDate.getFullYear(),
+		currentDate.getMonth(),
+		currentDate.getDate() + 1,
+	);
+	return dateKey === getLocalDateKey(tomorrow) ? "tomorrow" : null;
+}
+
+function isActionableDateProperty(propertyId: BasesPropertyId): boolean {
+	const propertyName = parsePropertyId(propertyId).name
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.replace(/[-_]+/g, " ")
+		.trim()
+		.toLowerCase();
+	const propertyWords = propertyName.split(/\s+/);
+
+	return (
+		propertyName === "date" ||
+		propertyWords.some((word) =>
+			["due", "deadline", "scheduled", "start", "end"].includes(word),
+		)
+	);
+}
+
+function getIsoDateKey(value: string): string | null {
+	const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+	if (!match) {
+		return null;
+	}
+
+	return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function getLocalDateKey(value: Date): string {
+	const year = String(value.getFullYear()).padStart(4, "0");
+	const month = String(value.getMonth() + 1).padStart(2, "0");
+	const day = String(value.getDate()).padStart(2, "0");
+	return `${year}-${month}-${day}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 export function getWritableGroupingPropertyName(
 	groupingKey: string | null,
@@ -155,6 +301,42 @@ export function formatNoteCount(count: number): string {
 	return `${count} note${count === 1 ? "" : "s"}`;
 }
 
+export function formatColumnNoteCount(
+	count: number,
+	wipLimit: number | null,
+): string {
+	if (wipLimit === null) {
+		return formatNoteCount(count);
+	}
+
+	return `${count} / ${wipLimit} note${count === 1 ? "" : "s"}`;
+}
+
+export function isColumnOverWipLimit(
+	count: number,
+	wipLimit: number | null,
+): boolean {
+	return wipLimit !== null && count > wipLimit;
+}
+
+export function parseWipLimitInput(
+	input: string,
+): number | null | undefined {
+	const trimmedInput = input.trim();
+	if (trimmedInput.length === 0) {
+		return null;
+	}
+
+	if (!/^\d+$/.test(trimmedInput)) {
+		return undefined;
+	}
+
+	const wipLimit = Number(trimmedInput);
+	return Number.isSafeInteger(wipLimit) && wipLimit > 0
+		? wipLimit
+		: undefined;
+}
+
 export function getRenamedNotePath(
 	file: RenameableNoteFile,
 	rawName: string,
@@ -173,12 +355,14 @@ export function getRenamedNotePath(
 	return normalizePath(parentPath ? `${parentPath}/${newFileName}` : newFileName);
 }
 
-export function createKanbanViewRegistration(): BasesViewRegistration {
+export function createKanbanViewRegistration(
+	settingsSource: KanbanSettingsSource = DEFAULT_KANBAN_SETTINGS_SOURCE,
+): BasesViewRegistration {
 	return {
 		name: KANBAN_VIEW_NAME,
 		icon: KANBAN_VIEW_ICON,
 		factory: (controller, containerEl) =>
-			new BasesKanbanScaffoldView(controller, containerEl),
+			new BasesKanbanScaffoldView(controller, containerEl, settingsSource),
 		options: () => [
 			{
 				type: "toggle",
@@ -201,8 +385,18 @@ export function createKanbanViewRegistration(): BasesViewRegistration {
 	};
 }
 
-export function registerKanbanView(plugin: BasesViewRegistrar): void {
-	plugin.registerBasesView(KANBAN_VIEW_TYPE, createKanbanViewRegistration());
+export function registerKanbanView(
+	plugin: BasesViewRegistrar,
+	settingsSource: KanbanSettingsSource = DEFAULT_KANBAN_SETTINGS_SOURCE,
+): void {
+	plugin.registerHoverLinkSource(KANBAN_HOVER_SOURCE, {
+		display: KANBAN_HOVER_SOURCE_NAME,
+		defaultMod: false,
+	});
+	plugin.registerBasesView(
+		KANBAN_VIEW_TYPE,
+		createKanbanViewRegistration(settingsSource),
+	);
 }
 
 export function getCardMoveAnimationTransforms(
@@ -251,8 +445,9 @@ export function shouldPreventCardTitleMouseDownDefault(
 	return mouseButton === 0 && !canReorderCards;
 }
 
-class BasesKanbanScaffoldView extends BasesView {
+class BasesKanbanScaffoldView extends BasesView implements HoverParent {
 	readonly type = KANBAN_VIEW_TYPE;
+	hoverPopover: HoverPopover | null = null;
 	private readonly containerEl: HTMLElement;
 	private readonly boardLabelId = `bases-kanban-board-label-${nextBoardLabelId++}`;
 	private boardEl: HTMLElement | null = null;
@@ -273,9 +468,21 @@ class BasesKanbanScaffoldView extends BasesView {
 	private previewRenderGeneration = 0;
 	private readonly cardPreviewCache = new Map<string, CardPreviewCacheEntry>();
 
-	constructor(controller: QueryController, parentEl: HTMLElement) {
+	constructor(
+		controller: QueryController,
+		parentEl: HTMLElement,
+		private readonly settingsSource: KanbanSettingsSource,
+	) {
 		super(controller);
 		this.containerEl = parentEl.createDiv({ cls: "bases-kanban-view" });
+	}
+
+	override onload(): void {
+		this.register(
+			this.settingsSource.subscribe(() => {
+				this.onDataUpdated();
+			}),
+		);
 	}
 
 	onDataUpdated(): void {
@@ -332,6 +539,11 @@ class BasesKanbanScaffoldView extends BasesView {
 		const hasActiveGrouping = getCurrentGroupingKey(this) !== null;
 		const canReorderColumns = hasActiveGrouping;
 		const canReorderCards = hasActiveGrouping;
+		const columnSettings = getCurrentColumnSettings(this, columnId);
+		const isOverWipLimit = isColumnOverWipLimit(
+			group.entries.length,
+			columnSettings.wipLimit,
+		);
 		const columnStackEl = boardEl.createDiv({
 			cls: "bases-kanban-column-stack",
 		});
@@ -340,6 +552,14 @@ class BasesKanbanScaffoldView extends BasesView {
 			cls: "bases-kanban-column",
 		});
 		columnEl.setAttribute(COLUMN_ID_ATTR, columnId);
+		if (columnSettings.color !== null) {
+			columnEl.addClass(
+				`bases-kanban-column--color-${columnSettings.color}`,
+			);
+		}
+		if (isOverWipLimit) {
+			columnEl.addClass("bases-kanban-column--over-wip-limit");
+		}
 		const headingEl = columnEl.createEl("header", {
 			cls: "bases-kanban-column-heading",
 		});
@@ -356,10 +576,15 @@ class BasesKanbanScaffoldView extends BasesView {
 			headingEl.addEventListener("contextmenu", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				this.openColumnMenu(event, columnStackEl);
+				this.openColumnMenu(event, columnStackEl, columnTitle);
 			});
 			headingEl.addEventListener("keydown", (event) => {
-				this.handleColumnHeaderKeyDown(event, headingEl, columnStackEl);
+				this.handleColumnHeaderKeyDown(
+					event,
+					headingEl,
+					columnStackEl,
+					columnTitle,
+				);
 			});
 		}
 
@@ -367,10 +592,28 @@ class BasesKanbanScaffoldView extends BasesView {
 			cls: "bases-kanban-column-title",
 			text: columnTitle,
 		});
-		headingEl.createEl("small", {
+		const countEl = headingEl.createEl("small", {
 			cls: "bases-kanban-column-count",
-			text: formatNoteCount(group.entries.length),
+			text: formatColumnNoteCount(
+				group.entries.length,
+				columnSettings.wipLimit,
+			),
 		});
+		if (columnSettings.wipLimit !== null) {
+			const overage = group.entries.length - columnSettings.wipLimit;
+			const countDescription = isOverWipLimit
+				? `${formatNoteCount(group.entries.length)}. WIP limit ${columnSettings.wipLimit}, exceeded by ${overage}.`
+				: `${formatNoteCount(group.entries.length)}. WIP limit ${columnSettings.wipLimit}.`;
+			countEl.setAttribute("aria-label", countDescription);
+			setTooltip(countEl, countDescription);
+		}
+		if (hasActiveGrouping) {
+			this.renderColumnOptionsButton(
+				headingEl,
+				columnStackEl,
+				columnTitle,
+			);
+		}
 
 		const cardsEl = columnEl.createEl("ul", { cls: "bases-kanban-cards" });
 		if (canReorderCards) {
@@ -398,6 +641,43 @@ class BasesKanbanScaffoldView extends BasesView {
 		}
 
 		this.renderAddNoteButton(columnStackEl, columnTitle, columnId);
+	}
+
+	private renderColumnOptionsButton(
+		headingEl: HTMLElement,
+		columnStackEl: HTMLElement,
+		columnTitle: string,
+	): void {
+		const buttonEl = headingEl.createEl("button", {
+			cls: "clickable-icon bases-kanban-column-options",
+			attr: {
+				type: "button",
+				"aria-label": `Options for ${columnTitle}`,
+			},
+		});
+		buttonEl.draggable = false;
+		setIcon(buttonEl, "ellipsis");
+		setTooltip(buttonEl, "Column options");
+		buttonEl.addEventListener("mousedown", (event) => {
+			event.stopPropagation();
+		});
+		buttonEl.addEventListener("dragstart", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+		});
+		buttonEl.addEventListener("keydown", (event) => {
+			event.stopPropagation();
+		});
+		buttonEl.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			const rect = buttonEl.getBoundingClientRect();
+			this.buildColumnMenu(columnStackEl, columnTitle)?.showAtPosition({
+				x: rect.left,
+				y: rect.bottom,
+				width: rect.width,
+			});
+		});
 	}
 
 	private renderAddNoteButton(
@@ -464,6 +744,9 @@ class BasesKanbanScaffoldView extends BasesView {
 		const cardId = getCardId(entry);
 		cardEl.setAttribute(CARD_ID_ATTR, cardId);
 		cardEl.tabIndex = 0;
+		cardEl.addEventListener("mouseover", (event) => {
+			this.handleCardHoverPreview(event, cardEl, entry);
+		});
 		cardEl.addEventListener("mouseover", (event) => {
 			this.handleCardMouseFocus(event, cardEl);
 		});
@@ -538,6 +821,33 @@ class BasesKanbanScaffoldView extends BasesView {
 		this.renderCardPreview(cardEl, entry);
 	}
 
+	private handleCardHoverPreview(
+		event: MouseEvent,
+		cardEl: HTMLElement,
+		entry: BasesEntry,
+	): void {
+		if (!this.settingsSource.getSettings().showCardHoverPreviews) {
+			return;
+		}
+
+		const relatedTarget = event.relatedTarget;
+		if (
+			relatedTarget instanceof Element &&
+			cardEl.contains(relatedTarget)
+		) {
+			return;
+		}
+
+		this.app.workspace.trigger("hover-link", {
+			event,
+			source: KANBAN_HOVER_SOURCE,
+			hoverParent: this,
+			targetEl: cardEl,
+			linktext: entry.file.path,
+			sourcePath: "",
+		});
+	}
+
 	private openEntry(event: MouseEvent | KeyboardEvent, entry: BasesEntry): void {
 		void this.app.workspace.openLinkText(
 			entry.file.path,
@@ -584,11 +894,56 @@ class BasesKanbanScaffoldView extends BasesView {
 			}
 
 			if (propertyItem.value instanceof DateValue) {
-				valueEl.setText(propertyItem.value.toString());
+				this.renderCardDateProperty(
+					valueEl,
+					propertyItem.propertyId,
+					propertyItem.value,
+				);
 				continue;
 			}
 
 			propertyItem.value.renderTo(valueEl, renderContext);
+		}
+	}
+
+	private renderCardDateProperty(
+		valueEl: HTMLElement,
+		propertyId: BasesPropertyId,
+		value: DateValue,
+	): void {
+		const dateDisplayMode =
+			this.settingsSource.getSettings().dateDisplayMode;
+		const presentation = getKanbanDatePresentation(
+			value,
+			propertyId,
+			dateDisplayMode,
+		);
+		valueEl.setText(presentation.text);
+
+		if (
+			dateDisplayMode === "relative" &&
+			presentation.exactText !== presentation.text
+		) {
+			setTooltip(valueEl, `Exact date: ${presentation.exactText}`, {
+				placement: "top",
+			});
+		}
+
+		if (presentation.status === null) {
+			return;
+		}
+
+		valueEl.addClass(
+			`bases-kanban-card-property-value--date-${presentation.status}`,
+		);
+		if (
+			dateDisplayMode === "exact" ||
+			presentation.status === "overdue"
+		) {
+			valueEl.createSpan({
+				cls: "bases-kanban-card-property-date-status",
+				text: ` · ${presentation.status}`,
+			});
 		}
 	}
 
@@ -1340,14 +1695,16 @@ class BasesKanbanScaffoldView extends BasesView {
 	private openColumnMenu(
 		event: MouseEvent,
 		columnStackEl: HTMLElement,
+		columnTitle: string,
 	): void {
-		this.buildColumnMenu(columnStackEl)?.showAtMouseEvent(event);
+		this.buildColumnMenu(columnStackEl, columnTitle)?.showAtMouseEvent(event);
 	}
 
 	private handleColumnHeaderKeyDown(
 		event: KeyboardEvent,
 		headingEl: HTMLElement,
 		columnStackEl: HTMLElement,
+		columnTitle: string,
 	): void {
 		if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
 			return;
@@ -1356,14 +1713,17 @@ class BasesKanbanScaffoldView extends BasesView {
 		event.preventDefault();
 		event.stopPropagation();
 		const rect = headingEl.getBoundingClientRect();
-		this.buildColumnMenu(columnStackEl)?.showAtPosition({
+		this.buildColumnMenu(columnStackEl, columnTitle)?.showAtPosition({
 			x: rect.left,
 			y: rect.bottom,
 			width: rect.width,
 		});
 	}
 
-	private buildColumnMenu(columnStackEl: HTMLElement): Menu | null {
+	private buildColumnMenu(
+		columnStackEl: HTMLElement,
+		columnTitle: string,
+	): Menu | null {
 		const boardEl = this.boardEl;
 		if (!(boardEl instanceof HTMLElement)) {
 			return null;
@@ -1379,8 +1739,59 @@ class BasesKanbanScaffoldView extends BasesView {
 		const canMoveLeft = columnIndex > 0;
 		const canMoveRight =
 			columnIndex !== -1 && columnIndex < columnOrder.length - 1;
+		const columnSettings = getCurrentColumnSettings(this, columnId);
 
 		const menu = new Menu();
+		menu.addItem((item) => {
+			item
+				.setTitle(
+					columnSettings.wipLimit === null
+						? "WIP limit…"
+						: `WIP limit: ${columnSettings.wipLimit}…`,
+				)
+				.setIcon("gauge")
+				.onClick(() => {
+					new ColumnWipLimitModal(
+						this.app,
+						columnTitle,
+						columnSettings.wipLimit,
+						(wipLimit) => {
+							this.updateColumnSettings(columnId, {
+								...getCurrentColumnSettings(this, columnId),
+								wipLimit,
+							});
+						},
+					).open();
+				});
+		});
+		menu.addItem((item) => {
+			const submenu = this.getMenuItemSubmenu(item);
+			item
+				.setTitle(
+					columnSettings.color === null
+						? "Column color"
+						: `Column color: ${KANBAN_COLUMN_COLOR_LABELS[columnSettings.color]}`,
+				)
+				.setIcon("palette");
+
+			if (submenu) {
+				this.addColumnColorMenuItems(
+					submenu,
+					columnId,
+					columnSettings.color,
+				);
+				return;
+			}
+
+			item.onClick((event) => {
+				this.openColumnColorMenu(
+					event,
+					columnId,
+					columnSettings.color,
+				);
+			});
+		});
+		menu.addSeparator();
 		menu.addItem((item) => {
 			item
 				.setTitle("Send left")
@@ -1400,6 +1811,72 @@ class BasesKanbanScaffoldView extends BasesView {
 				});
 		});
 		return menu;
+	}
+
+	private openColumnColorMenu(
+		event: MouseEvent | KeyboardEvent,
+		columnId: string,
+		currentColor: KanbanColumnColor | null,
+	): void {
+		const colorMenu = new Menu();
+		this.addColumnColorMenuItems(colorMenu, columnId, currentColor);
+
+		if (event instanceof MouseEvent) {
+			colorMenu.showAtMouseEvent(event);
+			return;
+		}
+
+		const targetEl = event.currentTarget;
+		if (targetEl instanceof HTMLElement) {
+			const rect = targetEl.getBoundingClientRect();
+			colorMenu.showAtPosition({
+				x: rect.left,
+				y: rect.bottom,
+				width: rect.width,
+			});
+			return;
+		}
+
+		colorMenu.showAtPosition({ x: 0, y: 0 });
+	}
+
+	private addColumnColorMenuItems(
+		menu: Menu,
+		columnId: string,
+		currentColor: KanbanColumnColor | null,
+	): void {
+		menu.addItem((item) => {
+			item
+				.setTitle("Default")
+				.setChecked(currentColor === null)
+				.onClick(() => {
+					this.updateColumnSettings(columnId, {
+						...getCurrentColumnSettings(this, columnId),
+						color: null,
+					});
+				});
+		});
+
+		for (const color of KANBAN_COLUMN_COLORS) {
+			menu.addItem((item) => {
+				item
+					.setTitle(KANBAN_COLUMN_COLOR_LABELS[color])
+					.setChecked(currentColor === color)
+					.onClick(() => {
+						this.updateColumnSettings(columnId, {
+							...getCurrentColumnSettings(this, columnId),
+							color,
+						});
+					});
+			});
+		}
+	}
+
+	private updateColumnSettings(
+		columnId: string,
+		settings: KanbanColumnSettings,
+	): void {
+		writeCurrentColumnSettings(this, columnId, settings);
 	}
 
 	private moveRenderedColumnByOffset(
@@ -1956,6 +2433,87 @@ class BasesKanbanScaffoldView extends BasesView {
 		this.setActiveCardSlot(null);
 		this.draggedCardSourceColumnId = null;
 		this.draggedCardEl = null;
+	}
+}
+
+class ColumnWipLimitModal extends Modal {
+	private textComponent: TextComponent | null = null;
+
+	constructor(
+		app: App,
+		private readonly columnTitle: string,
+		private readonly currentWipLimit: number | null,
+		private readonly onSave: (wipLimit: number | null) => void,
+	) {
+		super(app);
+	}
+
+	override onOpen(): void {
+		this.setTitle(`WIP limit for ${this.columnTitle}`);
+		this.contentEl.empty();
+
+		new Setting(this.contentEl)
+			.setName("Maximum notes")
+			.setDesc(
+				"The column remains usable after this limit is exceeded. Leave empty for no limit.",
+			)
+			.addText((text) => {
+				this.textComponent = text;
+				text
+					.setPlaceholder("No limit")
+					.setValue(
+						this.currentWipLimit === null
+							? ""
+							: String(this.currentWipLimit),
+					);
+				text.inputEl.type = "number";
+				text.inputEl.min = "1";
+				text.inputEl.step = "1";
+				text.inputEl.inputMode = "numeric";
+				text.inputEl.addEventListener("keydown", (event) => {
+					if (event.key !== "Enter") {
+						return;
+					}
+
+					event.preventDefault();
+					this.save();
+				});
+			});
+
+		new Setting(this.contentEl)
+			.addButton((button) => {
+				button.setButtonText("Cancel").onClick(() => {
+					this.close();
+				});
+			})
+			.addButton((button) => {
+				button
+					.setButtonText("Save")
+					.setCta()
+					.onClick(() => {
+						this.save();
+					});
+			});
+
+		this.textComponent?.inputEl.focus();
+		this.textComponent?.inputEl.select();
+	}
+
+	override onClose(): void {
+		this.contentEl.empty();
+	}
+
+	private save(): void {
+		const wipLimit = parseWipLimitInput(
+			this.textComponent?.getValue() ?? "",
+		);
+		if (wipLimit === undefined) {
+			new Notice("Enter a whole number greater than zero, or leave it empty.");
+			return;
+		}
+
+		this.onSave(wipLimit);
+		this.close();
 	}
 }
 

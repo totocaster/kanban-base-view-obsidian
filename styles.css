@@ -64,10 +64,54 @@
 	background-color: var(--background-secondary);
 }
 
+.bases-kanban-column--color-gray {
+	--bases-kanban-column-accent: var(--text-muted);
+}
+
+.bases-kanban-column--color-red {
+	--bases-kanban-column-accent: var(--color-red);
+}
+
+.bases-kanban-column--color-orange {
+	--bases-kanban-column-accent: var(--color-orange);
+}
+
+.bases-kanban-column--color-yellow {
+	--bases-kanban-column-accent: var(--color-yellow);
+}
+
+.bases-kanban-column--color-green {
+	--bases-kanban-column-accent: var(--color-green);
+}
+
+.bases-kanban-column--color-cyan {
+	--bases-kanban-column-accent: var(--color-cyan);
+}
+
+.bases-kanban-column--color-blue {
+	--bases-kanban-column-accent: var(--color-blue);
+}
+
+.bases-kanban-column--color-purple {
+	--bases-kanban-column-accent: var(--color-purple);
+}
+
+.bases-kanban-column--color-pink {
+	--bases-kanban-column-accent: var(--color-pink);
+}
+
+.bases-kanban-column[class*="bases-kanban-column--color-"] {
+	box-shadow: inset 0 3px 0 var(--bases-kanban-column-accent);
+}
+
+.bases-kanban-column--over-wip-limit {
+	border-color: var(--background-modifier-error);
+}
+
 .bases-kanban-column-heading {
 	display: flex;
-	align-items: baseline;
-	gap: var(--size-4-2);
+	align-items: center;
+	gap: var(--size-2-2);
 }
 
 .bases-kanban-column-heading--draggable {
@@ -94,6 +138,26 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	white-space: nowrap;
+}
+
+.bases-kanban-column--over-wip-limit .bases-kanban-column-count {
+	color: var(--text-error);
+	font-weight: var(--font-medium);
+}
+
+.bases-kanban-column-options {
+	flex: 0 0 auto;
+	width: var(--clickable-icon-size, 30px);
+	height: var(--clickable-icon-size, 30px);
+	padding: var(--size-2-1);
+	color: var(--text-faint);
+	opacity: 0.5;
+}
+
+.bases-kanban-column-options:hover,
+.bases-kanban-column-options:focus-visible {
+	color: var(--text-muted);
+	opacity: 1;
 }
 
 .bases-kanban-cards {
@@ -233,6 +297,23 @@
 
 .bases-kanban-card-property-value--empty {
 	color: var(--text-faint);
+}
+
+.bases-kanban-card-property-value--date-overdue {
+	color: var(--text-error);
+}
+
+.bases-kanban-card-property-value--date-today {
+	color: var(--text-warning);
+}
+
+.bases-kanban-card-property-value--date-tomorrow {
+	color: var(--text-accent);
+}
+
+.bases-kanban-card-property-date-status {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-medium);
 }
 
 .bases-kanban-card-property-value > * {

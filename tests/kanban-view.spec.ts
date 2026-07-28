@@ -2,16 +2,25 @@ import { describe, expect, it, vi } from "vitest";
 import { NullValue } from "obsidian";
 import {
 	applyGroupingValueToFrontmatter,
+	DEFAULT_KANBAN_GLOBAL_SETTINGS,
+	KANBAN_HOVER_SOURCE,
+	KANBAN_HOVER_SOURCE_NAME,
 	KANBAN_VIEW_ICON,
 	KANBAN_VIEW_NAME,
 	KANBAN_VIEW_TYPE,
 	createGroupedNoteFrontmatterProcessor,
 	createKanbanViewRegistration,
+	formatColumnNoteCount,
 	formatNoteCount,
+	getKanbanDatePresentation,
+	getKanbanDateStatus,
 	getCardMoveAnimationTransforms,
 	getRenamedNotePath,
 	getWritableGroupingPropertyName,
 	getGroupTitle,
+	isColumnOverWipLimit,
+	normalizeKanbanGlobalSettings,
+	parseWipLimitInput,
 	registerKanbanView,
 	shouldPreventCardTitleMouseDownDefault,
 	shouldReleaseMouseFocusSuppression,
@@ -47,6 +56,125 @@ describe("formatNoteCount", () => {
 
 	it("formats a plural note count", () => {
 		expect(formatNoteCount(3)).toBe("3 notes");
+	});
+});
+
+describe("column WIP presentation", () => {
+	it("shows the current note count and configured limit", () => {
+		expect(formatColumnNoteCount(5, 3)).toBe("5 / 3 notes");
+		expect(formatColumnNoteCount(1, 3)).toBe("1 / 3 note");
+		expect(formatColumnNoteCount(3, null)).toBe("3 notes");
+	});
+
+	it("warns only after the soft limit is exceeded", () => {
+		expect(isColumnOverWipLimit(2, 3)).toBe(false);
+		expect(isColumnOverWipLimit(3, 3)).toBe(false);
+		expect(isColumnOverWipLimit(4, 3)).toBe(true);
+		expect(isColumnOverWipLimit(4, null)).toBe(false);
+	});
+
+	it("parses positive whole-number limits and uses an empty value to clear", () => {
+		expect(parseWipLimitInput(" 4 ")).toBe(4);
+		expect(parseWipLimitInput("")).toBeNull();
+		expect(parseWipLimitInput("0")).toBeUndefined();
+		expect(parseWipLimitInput("2.5")).toBeUndefined();
+		expect(parseWipLimitInput("many")).toBeUndefined();
+	});
+});
+
+describe("normalizeKanbanGlobalSettings", () => {
+	it("uses stable defaults for missing or invalid settings", () => {
+		expect(normalizeKanbanGlobalSettings(undefined)).toEqual(
+			DEFAULT_KANBAN_GLOBAL_SETTINGS,
+		);
+		expect(
+			normalizeKanbanGlobalSettings({
+				showCardHoverPreviews: "yes",
+				dateDisplayMode: "friendly",
+			}),
+		).toEqual(DEFAULT_KANBAN_GLOBAL_SETTINGS);
+	});
+
+	it("keeps valid global hover and date display settings", () => {
+		expect(
+			normalizeKanbanGlobalSettings({
+				showCardHoverPreviews: false,
+				dateDisplayMode: "relative",
+			}),
+		).toEqual({
+			showCardHoverPreviews: false,
+			dateDisplayMode: "relative",
+		});
+	});
+});
+
+describe("getKanbanDatePresentation", () => {
+	const dateValue = {
+		toString: () => "2026-07-27",
+		relative: () => "yesterday",
+	};
+
+	it("shows exact dates while retaining their kanban status", () => {
+		expect(
+			getKanbanDatePresentation(
+				dateValue,
+				"note.due",
+				"exact",
+				new Date(2026, 6, 28),
+			),
+		).toEqual({
+			text: "2026-07-27",
+			exactText: "2026-07-27",
+			status: "overdue",
+		});
+	});
+
+	it("shows relative dates while retaining the exact value for a tooltip", () => {
+		expect(
+			getKanbanDatePresentation(
+				dateValue,
+				"note.due",
+				"relative",
+				new Date(2026, 6, 28),
+			),
+		).toEqual({
+			text: "yesterday",
+			exactText: "2026-07-27",
+			status: "overdue",
+		});
+	});
+});
+
+describe("getKanbanDateStatus", () => {
+	it("classifies overdue, today, and tomorrow values for actionable dates", () => {
+		const currentDate = new Date(2026, 6, 28, 18, 30);
+
+		expect(
+			getKanbanDateStatus("note.dueDate", "2026-07-27", currentDate),
+		).toBe("overdue");
+		expect(
+			getKanbanDateStatus("note.deadline", "2026-07-28", currentDate),
+		).toBe("today");
+		expect(
+			getKanbanDateStatus("note.scheduled", "2026-07-29", currentDate),
+		).toBe("tomorrow");
+	});
+
+	it("does not assign workflow status to historical metadata dates", () => {
+		expect(
+			getKanbanDateStatus(
+				"file.mtime",
+				"2026-07-27",
+				new Date(2026, 6, 28),
+			),
+		).toBeNull();
+		expect(
+			getKanbanDateStatus(
+				"note.created",
+				"2026-07-27",
+				new Date(2026, 6, 28),
+			),
+		).toBeNull();
 	});
 });
 
@@ -317,11 +445,20 @@ describe("createGroupedNoteFrontmatterProcessor", () => {
 });
 
 describe("registerKanbanView", () => {
-	it("registers the kanban Bases view with the expected metadata", () => {
+	it("registers no-modifier page previews and the expected Bases view", () => {
 		const registerBasesView = vi.fn();
+		const registerHoverLinkSource = vi.fn();
 
-		registerKanbanView({ registerBasesView });
+		registerKanbanView({ registerBasesView, registerHoverLinkSource });
 
+		expect(registerHoverLinkSource).toHaveBeenCalledTimes(1);
+		expect(registerHoverLinkSource).toHaveBeenCalledWith(
+			KANBAN_HOVER_SOURCE,
+			{
+				display: KANBAN_HOVER_SOURCE_NAME,
+				defaultMod: false,
+			},
+		);
 		expect(registerBasesView).toHaveBeenCalledTimes(1);
 		expect(registerBasesView).toHaveBeenCalledWith(
 			KANBAN_VIEW_TYPE,
